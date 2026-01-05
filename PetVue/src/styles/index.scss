@@ -1,0 +1,6 @@
+// Main Style Entry Point
+// Import order matters - variables first, then base, then animations
+
+@import './variables.scss';
+@import './base.scss';
+@import './animations.scss';

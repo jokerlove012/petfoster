@@ -1,0 +1,21 @@
+1. 启动后端 (Spring Boot)
+cd PetJava
+mvn spring-boot:run
+后端运行在 http://localhost:8080/api
+
+2. 启动 Nginx (前端)
+& "C:\nginx\nginx.exe" -p "C:\nginx"
+前端访问地址：http://localhost:8088
+
+3. 停止服务
+# 停止后端
+Get-Process -Name java | Stop-Process -Force
+
+# 停止 Nginx
+Get-Process -Name nginx | Stop-Process -Force
+4. 重新构建前端（修改代码后）
+
+
+cd PetVue
+npx vite build
+Copy-Item -Path "dist\*" -Destination "C:\ng

@@ -1,0 +1,242 @@
+// Animation Durations
+$duration-fast: 150ms;
+$duration-normal: 300ms;
+$duration-slow: 500ms;
+
+// Easing Functions
+$ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+$ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+$ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+// Keyframe Animations
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+// Animation Classes
+.animate-fade-in {
+  animation: fadeIn $duration-normal $ease-out forwards;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp $duration-normal $ease-out forwards;
+}
+
+.animate-fade-in-down {
+  animation: fadeInDown $duration-normal $ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn $duration-normal $ease-bounce forwards;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight $duration-normal $ease-out forwards;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft $duration-normal $ease-out forwards;
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.animate-bounce {
+  animation: bounce 1s ease-in-out infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+// Stagger Animation Delays
+@for $i from 1 through 10 {
+  .stagger-#{$i} {
+    animation-delay: #{$i * 50}ms;
+  }
+}
+
+// Vue Transition Classes
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity $duration-normal $ease-out;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all $duration-normal $ease-out;
+}
+
+.slide-up-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+.scale-enter-active,
+.scale-leave-active {
+  transition: all $duration-normal $ease-bounce;
+}
+
+.scale-enter-from,
+.scale-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+// Page Transition
+.page-enter-active {
+  animation: fadeInUp $duration-slow $ease-out;
+}
+
+.page-leave-active {
+  animation: fadeOut $duration-fast $ease-out;
+}
+
+// Hover Effects Mixin
+@mixin hover-lift {
+  transition: transform $duration-fast $ease-out, box-shadow $duration-fast $ease-out;
+  
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+@mixin hover-scale {
+  transition: transform $duration-fast $ease-bounce;
+  
+  &:hover {
+    transform: scale(1.05);
+  }
+  
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
+// Ripple Effect Mixin
+@mixin ripple-effect {
+  position: relative;
+  overflow: hidden;
+  
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+    pointer-events: none;
+  }
+  
+  &:active::after {
+    animation: ripple $duration-slow $ease-out;
+  }
+}
