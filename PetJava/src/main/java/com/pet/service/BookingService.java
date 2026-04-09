@@ -118,8 +118,12 @@ public class BookingService {
         return PageResult.of(list, page, pageSize, pageResult.getTotal());
     }
 
-    public Map<String, Object> getDetail(String id) {
-        Booking booking = bookingMapper.selectById(id);
+    public Map<String, Object> getDetail(String idOrOrderNumber) {
+        Booking booking = bookingMapper.selectById(idOrOrderNumber);
+        if (booking == null) {
+            booking = bookingMapper.selectOne(new LambdaQueryWrapper<Booking>()
+                    .eq(Booking::getOrderNumber, idOrOrderNumber));
+        }
         if (booking == null) {
             throw new RuntimeException("订单不存在");
         }

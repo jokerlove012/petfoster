@@ -267,10 +267,16 @@ watch(filterPetType, () => {
   }
 })
 
-onMounted(() => {
+onMounted(async () => {
   // 设置地图容器 ID
   if (mapRef.value) {
     mapRef.value.id = 'map-container-' + Date.now()
+  }
+  try {
+    const pos = await getCurrentPosition()
+    userLocation.value = pos
+  } catch (error) {
+    console.log('Auto-location failed, using default position')
   }
   initMap()
 })

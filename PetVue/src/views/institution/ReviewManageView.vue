@@ -12,6 +12,32 @@ const loading = ref(false)
 // 评价列表
 const reviews = ref<any[]>([])
 
+// 获取综合评分
+const getOverallRating = (review: any) => {
+  if (!review.rating) return 0
+  if (typeof review.rating === 'number') return review.rating
+  return review.rating.overall || 0
+}
+
+// 获取各维度评分
+const getServiceRating = (review: any) => {
+  if (!review.rating) return 0
+  if (typeof review.rating === 'number') return review.rating
+  return review.rating.service || review.rating.overall || 0
+}
+
+const getCleanRating = (review: any) => {
+  if (!review.rating) return 0
+  if (typeof review.rating === 'number') return review.rating
+  return review.rating.hygiene || review.rating.environment || review.rating.overall || 0
+}
+
+const getCommunicationRating = (review: any) => {
+  if (!review.rating) return 0
+  if (typeof review.rating === 'number') return review.rating
+  return review.rating.communication || review.rating.overall || 0
+}
+
 // 加载评价列表
 const loadReviews = async () => {
   loading.value = true
@@ -40,15 +66,15 @@ const filteredReviews = computed(() => {
   }
   
   if (filterRating.value) {
-    result = result.filter(r => r.rating === filterRating.value)
+    result = result.filter(r => Math.round(getOverallRating(r)) === filterRating.value)
   }
   
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     result = result.filter(r => 
-      r.userName.toLowerCase().includes(query) ||
-      r.petName.toLowerCase().includes(query) ||
-      r.content.toLowerCase().includes(query)
+      (r.userName || '').toLowerCase().includes(query) ||
+      (r.petName || '').toLowerCase().includes(query) ||
+      (r.content || '').toLowerCase().includes(query)
     )
   }
   
@@ -58,7 +84,8 @@ const filteredReviews = computed(() => {
 const pendingCount = computed(() => reviews.value.filter(r => !r.replied).length)
 const averageRating = computed(() => {
   if (reviews.value.length === 0) return 0
-  return (reviews.value.reduce((sum, r) => sum + r.rating, 0) / reviews.value.length).toFixed(1)
+  const total = reviews.value.reduce((sum, r) => sum + getOverallRating(r), 0)
+  return (total / reviews.value.length).toFixed(1)
 })
 
 const startReply = (reviewId: string) => {
@@ -90,7 +117,8 @@ const submitReply = async (review: typeof reviews.value[0]) => {
 }
 
 const renderStars = (rating: number) => {
-  return '★'.repeat(rating) + '☆'.repeat(5 - rating)
+  const r = Math.round(rating || 0)
+  return '★'.repeat(Math.min(r, 5)) + '☆'.repeat(Math.max(5 - r, 0))
 }
 
 onMounted(() => {
@@ -173,19 +201,19 @@ onMounted(() => {
         <div class="review-ratings">
           <div class="rating-item">
             <span class="rating-label">综合评分</span>
-            <span class="rating-stars" :class="{ low: review.rating <= 2 }">{{ renderStars(review.rating) }}</span>
+            <span class="rating-stars" :class="{ low: getOverallRating(review) <= 2 }">{{ renderStars(getOverallRating(review)) }}</span>
           </div>
           <div class="rating-item">
             <span class="rating-label">服务质量</span>
-            <span class="rating-stars">{{ renderStars(review.serviceRating) }}</span>
+            <span class="rating-stars">{{ renderStars(getServiceRating(review)) }}</span>
           </div>
           <div class="rating-item">
             <span class="rating-label">环境卫生</span>
-            <span class="rating-stars">{{ renderStars(review.cleanRating) }}</span>
+            <span class="rating-stars">{{ renderStars(getCleanRating(review)) }}</span>
           </div>
           <div class="rating-item">
             <span class="rating-label">沟通效率</span>
-            <span class="rating-stars">{{ renderStars(review.communicationRating) }}</span>
+            <span class="rating-stars">{{ renderStars(getCommunicationRating(review)) }}</span>
           </div>
         </div>
 
@@ -201,11 +229,11 @@ onMounted(() => {
         </div>
 
         <!-- 已回复 -->
-        <div v-if="review.replied" class="reply-section replied">
+        <div v-if="review.replied && review.reply" class="reply-section replied">
           <div class="reply-header">
             <span class="reply-label">🏠 商家回复</span>
           </div>
-          <p class="reply-content">{{ review.reply }}</p>
+          <p class="reply-content">{{ typeof review.reply === 'object' ? review.reply.content : review.reply }}</p>
         </div>
 
         <!-- 回复输入框 -->

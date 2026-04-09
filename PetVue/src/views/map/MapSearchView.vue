@@ -260,7 +260,7 @@ const loadInstitutions = async () => {
   try {
     const res = await institutionApi.search({ page: 1, pageSize: 50 })
     if (res.code === 200 && res.data) {
-      const list = res.data.list || res.data.items || []
+      const list = res.data.list || []
       institutions.value = list.map((inst: any) => ({
         id: inst.id,
         name: inst.name,
@@ -359,7 +359,14 @@ const callInstitution = (inst: Institution) => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const pos = await getCurrentPosition()
+    userLocation.value = pos
+    ElMessage.success('定位成功，正在获取附近机构...')
+  } catch (error) {
+    console.log('Auto-location failed, using default position')
+  }
   loadInstitutions()
   initMap()
 })

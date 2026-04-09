@@ -18,19 +18,23 @@ const isAuthenticated = computed(() => authStore.isAuthenticated)
 // 获取通知数据
 const fetchNotifications = async () => {
   if (isAuthenticated.value) {
-    await notificationStore.fetchNotifications()
+    try {
+      await notificationStore.fetchNotifications()
+    } catch (e) {
+      console.debug('Notification fetch failed, skipping')
+    }
   }
 }
 
 // 启动自动刷新
 const startAutoRefresh = () => {
   if (refreshTimer) return
-  // 每10秒刷新一次通知
+  // 每30秒刷新一次通知（降低频率减少请求）
   refreshTimer = setInterval(() => {
     if (isAuthenticated.value && !document.hidden) {
       fetchNotifications()
     }
-  }, 10000)
+  }, 30000)
 }
 
 // 停止自动刷新

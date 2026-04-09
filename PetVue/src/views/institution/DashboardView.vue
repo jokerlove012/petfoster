@@ -579,7 +579,7 @@ onUnmounted(() => {
           </span>
         </div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" @click="router.push('/institution/reports')">
         <div class="stat-icon revenue"><DollarSign :size="24" /></div>
         <div class="stat-content">
           <span class="stat-label">本月收入</span>
@@ -590,7 +590,7 @@ onUnmounted(() => {
           </span>
         </div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" @click="router.push('/institution/orders')">
         <div class="stat-icon occupancy"><Users :size="24" /></div>
         <div class="stat-content">
           <span class="stat-label">入住率</span>
@@ -604,7 +604,7 @@ onUnmounted(() => {
           <span>{{ roomStatus.occupied }}/{{ roomStatus.total }} 房间</span>
         </div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" @click="router.push('/institution/reviews')">
         <div class="stat-icon rating"><Star :size="24" /></div>
         <div class="stat-content">
           <span class="stat-label">平均评分</span>

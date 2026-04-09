@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElMessage, ElDropdown, ElDropdownMenu, ElDropdownItem } from 'element-plus'
+import { ElMessage, ElDropdown, ElDropdownMenu, ElDropdownItem, ElDatePicker } from 'element-plus'
 import { AppCard } from '@/components/common'
 import { adminApi } from '@/api/admin'
 import { exportToCSV, exportToPDF, createPlatformReport, formatDateRange } from '@/utils/reportExporter'
 
-const dateRange = ref('month')
+const dateMode = ref<'quick' | 'custom'>('quick')
+const quickRange = ref('month')
+const customDateRange = ref<[Date, Date] | null>(null)
 const isExporting = ref(false)
 const loading = ref(false)
 
@@ -18,9 +20,32 @@ const topInstitutions = ref<any[]>([])
 const loadDashboardData = async () => {
   loading.value = true
   try {
-    const res = await adminApi.getDashboardStats()
+    let period = 'month'
+    let startDate: string | undefined
+    let endDate: string | undefined
+    
+    if (dateMode.value === 'quick') {
+      period = quickRange.value
+    } else if (customDateRange.value) {
+      const formatDate = (date: Date) => {
+        const d = new Date(date)
+        const year = d.getFullYear()
+        const month = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      }
+      startDate = formatDate(customDateRange.value[0])
+      endDate = formatDate(customDateRange.value[1])
+    }
+    
+    console.log('AnalyticsView 加载数据 - mode:', dateMode.value, 'period:', period, 'startDate:', startDate, 'endDate:', endDate)
+    
+    const res = await adminApi.getDashboardStats(period, startDate, endDate)
+    console.log('AnalyticsView API 响应:', res)
+    
     if (res.data) {
       const data = res.data
+      console.log('AnalyticsView 数据:', data)
       userStats.value = {
         total: data.totalUsers || 0,
         newThisMonth: data.newUsersToday || 0,
@@ -39,14 +64,12 @@ const loadDashboardData = async () => {
         pending: data.pendingInstitutions || 0,
         suspended: 0
       }
-      // 收入趋势
       if (data.revenueTrend) {
         trendData.value = data.revenueTrend.map((item: any) => ({
           month: item.name,
           revenue: parseFloat(item.value) || 0
         }))
       }
-      // 机构排名
       if (data.institutionRanking) {
         topInstitutions.value = data.institutionRanking.map((item: any) => ({
           name: item.name,
@@ -68,8 +91,8 @@ const formatPrice = (price: number) => `¥${price.toLocaleString()}`
 const handleExport = async (format: 'csv' | 'pdf') => {
   isExporting.value = true
   try {
-    const report = createPlatformReport(dateRange.value, userStats.value, orderStats.value, institutionStats.value, trendData.value, topInstitutions.value)
-    const filename = `平台数据报表_${formatDateRange(dateRange.value).replace(/\s/g, '_')}`
+    const report = createPlatformReport(quickRange.value, userStats.value, orderStats.value, institutionStats.value, trendData.value, topInstitutions.value)
+    const filename = `平台数据报表_${formatDateRange(quickRange.value).replace(/\s/g, '_')}`
     if (format === 'csv') {
       exportToCSV(report.sections, filename)
       ElMessage.success('CSV 报表导出成功')
@@ -84,6 +107,23 @@ const handleExport = async (format: 'csv' | 'pdf') => {
   }
 }
 
+const handleQuickRangeChange = (event: Event) => {
+  const target = event.target as HTMLSelectElement
+  dateMode.value = 'quick'
+  quickRange.value = target.value
+  customDateRange.value = null
+  loadDashboardData()
+}
+
+const handleDateRangeChange = (range: any) => {
+  console.log('AnalyticsView 日期范围变化:', range)
+  if (range && range.length === 2) {
+    dateMode.value = 'custom'
+    customDateRange.value = range
+    loadDashboardData()
+  }
+}
+
 onMounted(() => { loadDashboardData() })
 </script>
 
@@ -95,12 +135,43 @@ onMounted(() => { loadDashboardData() })
         <p>平台运营数据概览</p>
       </div>
       <div class="header-actions">
-        <select v-model="dateRange" class="date-filter">
-          <option value="week">本周</option>
-          <option value="month">本月</option>
-          <option value="quarter">本季度</option>
-          <option value="year">本年</option>
-        </select>
+        <div class="date-selector">
+          <div class="mode-tabs">
+            <button 
+              :class="['mode-tab', { active: dateMode === 'quick' }]"
+              @click="dateMode = 'quick'; customDateRange = null; loadDashboardData()"
+            >
+              快捷选择
+            </button>
+            <button 
+              :class="['mode-tab', { active: dateMode === 'custom' }]"
+              @click="dateMode = 'custom'"
+            >
+              自定义
+            </button>
+          </div>
+          
+          <template v-if="dateMode === 'quick'">
+            <select :value="quickRange" @change="handleQuickRangeChange" class="quick-select">
+              <option value="week">本周</option>
+              <option value="month">本月</option>
+              <option value="quarter">本季度</option>
+              <option value="year">本年</option>
+            </select>
+          </template>
+          
+          <template v-else>
+            <el-date-picker
+              v-model="customDateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              @change="handleDateRangeChange"
+              class="date-range-picker"
+            />
+          </template>
+        </div>
         <ElDropdown trigger="click" @command="handleExport">
           <button class="export-btn" :disabled="isExporting">
             <span v-if="isExporting">导出中...</span>
@@ -205,7 +276,14 @@ onMounted(() => { loadDashboardData() })
   h1 { font-family: var(--font-display); font-size: 28px; margin: 0 0 4px; }
   p { color: var(--color-text-secondary); margin: 0; }
   .header-actions { display: flex; gap: 12px; align-items: center; }
-  .date-filter { padding: 10px 16px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 14px; background: var(--color-surface); }
+  .date-selector { display: flex; flex-direction: column; gap: 8px; }
+  .mode-tabs { display: flex; gap: 4px; background: var(--color-surface); padding: 4px; border-radius: var(--radius-md); }
+  .mode-tab {
+    padding: 6px 12px; border: none; background: transparent; cursor: pointer; font-size: 13px; border-radius: var(--radius-sm);
+    &.active { background: var(--color-primary); color: white; }
+  }
+  .quick-select { padding: 10px 16px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 14px; background: var(--color-surface); }
+  .date-range-picker { :deep(.el-input__wrapper) { padding: 10px 16px; border-radius: var(--radius-md); } }
   .export-btn {
     padding: 10px 16px; border: none; border-radius: var(--radius-md);
     background: linear-gradient(135deg, var(--color-primary) 0%, #FF8F5C 100%);

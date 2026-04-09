@@ -79,7 +79,31 @@ const addDialogTitle = computed(() =>
 
 const formRules: FormRules = {
   accountName: [{ required: true, message: '请输入账户名称', trigger: 'blur' }],
-  accountNumber: [{ required: true, message: '请输入账号', trigger: 'blur' }],
+  accountNumber: [
+    { required: true, message: '请输入账号', trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (!value) {
+          callback()
+          return
+        }
+        if (accountType.value === 'bank_card') {
+          if (!/^\d{16,19}$/.test(value)) {
+            callback(new Error('银行卡号应为16-19位数字'))
+          } else {
+            callback()
+          }
+        } else {
+          if (value.length < 6) {
+            callback(new Error('支付宝账号至少6位'))
+          } else {
+            callback()
+          }
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
   bankName: [{ required: true, message: '请输入银行名称', trigger: 'blur' }]
 }
 

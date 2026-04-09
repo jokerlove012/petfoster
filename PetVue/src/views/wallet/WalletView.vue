@@ -15,7 +15,7 @@
         <h3>最近交易</h3>
         <el-button type="text" @click="goToTransactions">查看全部</el-button>
       </div>
-      <div class="transaction-list" v-if="walletStore.transactions.length">
+      <div class="transaction-list" v-if="walletStore.transactions && walletStore.transactions.length">
         <TransactionItem
           v-for="tx in recentTransactions"
           :key="tx.id"

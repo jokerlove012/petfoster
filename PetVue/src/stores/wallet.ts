@@ -67,9 +67,25 @@ export const useWalletStore = defineStore('wallet', () => {
     try {
       const res = await walletApi.createRechargeOrder({ amount, paymentMethod })
       if (res.code === 200) {
-        return res.data
+        const order = res.data.order
+        return order
       }
       return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function confirmRecharge(orderId: string): Promise<boolean> {
+    loading.value = true
+    try {
+      const res = await walletApi.confirmRecharge(orderId)
+      if (res.code === 200) {
+        await fetchWallet()
+        await fetchTransactions({ pageSize: 5 })
+        return true
+      }
+      return false
     } finally {
       loading.value = false
     }
@@ -85,13 +101,14 @@ export const useWalletStore = defineStore('wallet', () => {
     try {
       const res = await walletApi.createWithdrawal({ amount, accountId, password })
       if (res.code === 200) {
-        withdrawals.value.unshift(res.data)
+        const withdrawal = res.data.withdrawal
+        withdrawals.value.unshift(withdrawal)
         // 更新钱包余额
         if (wallet.value) {
-          wallet.value.balance -= res.data.amount
-          wallet.value.frozenBalance += res.data.amount
+          wallet.value.balance -= withdrawal.amount
+          wallet.value.frozenBalance += withdrawal.amount
         }
-        return res.data
+        return withdrawal
       }
       return null
     } finally {
@@ -103,22 +120,18 @@ export const useWalletStore = defineStore('wallet', () => {
     loading.value = true
     try {
       const res = await walletApi.getTransactions(params)
-      if (res.code === 200) {
-        transactions.value = res.data.list
-        transactionsTotal.value = res.data.pagination.total
-      }
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function fetchWithdrawals(params?: { page?: number; pageSize?: number }) {
-    loading.value = true
-    try {
-      const res = await walletApi.getWithdrawals(params)
-      if (res.code === 200) {
-        withdrawals.value = res.data.list
-        withdrawalsTotal.value = res.data.pagination.total
+      if (res.code === 200 && res.data) {
+        if (Array.isArray(res.data)) {
+          transactions.value = res.data
+          transactionsTotal.value = res.data.length
+        } else if ((res.data as any).list) {
+          const data = res.data as any
+          transactions.value = data.list
+          transactionsTotal.value = data.pagination?.total ?? data.total ?? data.list?.length ?? 0
+        } else {
+          transactions.value = []
+          transactionsTotal.value = 0
+        }
       }
     } finally {
       loading.value = false
@@ -147,8 +160,9 @@ export const useWalletStore = defineStore('wallet', () => {
     try {
       const res = await walletApi.addWithdrawalAccount(data)
       if (res.code === 200) {
-        withdrawalAccounts.value.push(res.data)
-        return res.data
+        const account = res.data.account
+        withdrawalAccounts.value.push(account)
+        return account
       }
       return null
     } finally {
@@ -189,10 +203,10 @@ export const useWalletStore = defineStore('wallet', () => {
     }
   }
 
-  async function fetchIncomeStatistics(period: 'day' | 'week' | 'month') {
+  async function fetchIncomeStatistics() {
     loading.value = true
     try {
-      const res = await walletApi.getIncomeStatistics(period)
+      const res = await walletApi.getIncomeStatistics()
       if (res.code === 200) {
         incomeStatistics.value = res.data
       }
@@ -232,7 +246,6 @@ export const useWalletStore = defineStore('wallet', () => {
     incomeStatistics,
     loading,
     transactionsTotal,
-    withdrawalsTotal,
     // Getters
     balance,
     frozenBalance,
@@ -246,16 +259,13 @@ export const useWalletStore = defineStore('wallet', () => {
     // Actions
     fetchWallet,
     createRecharge,
+    confirmRecharge,
     createWithdrawal,
     fetchTransactions,
-    fetchWithdrawals,
     fetchWithdrawalAccounts,
     addWithdrawalAccount,
     deleteWithdrawalAccount,
     setDefaultAccount,
-    fetchIncomeStatistics,
-    updateWalletBalance,
-    addTransaction,
-    clearWallet
+    fetchIncomeStatistics
   }
 })

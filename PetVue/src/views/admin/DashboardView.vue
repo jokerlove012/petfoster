@@ -23,17 +23,19 @@ import {
   BarChart3,
   PieChart as PieChartIcon
 } from 'lucide-vue-next'
-import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification, ElDatePicker } from 'element-plus'
 import LineChart from '@/components/charts/LineChart.vue'
 import PieChart from '@/components/charts/PieChart.vue'
 import BarChart from '@/components/charts/BarChart.vue'
-import { exportToCSV, exportToPDF } from '@/utils/reportExporter'
+import { exportToCSV, exportToPDF, createPlatformReport, formatDateRange } from '@/utils/reportExporter'
 import { adminApi } from '@/api/admin'
 
 const router = useRouter()
 const loading = ref(false)
 const lastUpdated = ref(new Date().toLocaleTimeString())
-const selectedPeriod = ref<'today' | 'week' | 'month' | 'year'>('month')
+const dateMode = ref<'quick' | 'custom'>('quick')
+const quickRange = ref<'today' | 'week' | 'month' | 'quarter' | 'year'>('month')
+const customDateRange = ref<[Date, Date] | null>(null)
 const showExportMenu = ref(false)
 const autoRefreshEnabled = ref(true)
 let refreshInterval: ReturnType<typeof setInterval> | null = null
@@ -110,52 +112,138 @@ const quickActions = ref([
 const loadDashboardData = async () => {
   loading.value = true
   try {
-    const res = await adminApi.getDashboardStats()
+    let period = 'month'
+    let startDate: string | undefined
+    let endDate: string | undefined
+    
+    if (dateMode.value === 'quick') {
+      period = quickRange.value
+    } else if (customDateRange.value) {
+      const formatDate = (date: Date) => {
+        const d = new Date(date)
+        const year = d.getFullYear()
+        const month = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      }
+      startDate = formatDate(customDateRange.value[0])
+      endDate = formatDate(customDateRange.value[1])
+    }
+    
+    console.log('DashboardView 加载数据 - mode:', dateMode.value, 'period:', period, 'startDate:', startDate, 'endDate:', endDate)
+    
+    const res = await adminApi.getDashboardStats(period, startDate, endDate)
+    console.log('DashboardView API 响应:', res)
     if (res.code === 200 && res.data) {
       const data = res.data
-      stats.value[0].value = data.totalUsers || 0
-      stats.value[1].value = data.totalInstitutions || 0
-      stats.value[2].value = data.totalOrders || 0
-      stats.value[3].value = data.totalRevenue || 0
+      console.log('仪表盘数据:', data)
+      console.log('pendingInstitutions:', data.pendingInstitutions)
+      
+      // 根据周期更新卡片标签
+      let label1 = '订单'
+      let label2 = '收入'
+      if (period === 'today') {
+        label1 = '今日订单'
+        label2 = '今日收入'
+      } else if (period === 'week') {
+        label1 = '本周订单'
+        label2 = '本周收入'
+      } else if (period === 'month') {
+        label1 = '本月订单'
+        label2 = '本月收入'
+      } else if (period === 'quarter') {
+        label1 = '本季度订单'
+        label2 = '本季度收入'
+      } else if (period === 'year') {
+        label1 = '本年订单'
+        label2 = '本年收入'
+      }
+      stats.value[0].label = '总用户数'
+      stats.value[1].label = '总机构数'
+      stats.value[2].label = label1
+      stats.value[3].label = label2
+      
+      stats.value[0].value = Number(data.totalUsers) || 0
+      stats.value[1].value = Number(data.totalInstitutions) || 0
+      stats.value[2].value = Number(data.monthlyOrders) || 0
+      stats.value[3].value = Number(data.monthlyRevenue) || 0
+      
+      console.log('更新后的 stats:', stats.value)
       
       // 详细统计
       detailedStats.value = {
-        activeUsers: data.activeUsers || 0,
-        newUsersToday: data.newUsersToday || 0,
-        activeInstitutions: data.totalInstitutions || 0,
-        pendingInstitutions: data.pendingInstitutions || 0,
-        completedOrders: data.completedOrders || 0,
-        cancelledOrders: data.cancelledOrders || 0,
-        avgOrderValue: data.avgOrderValue || 0,
+        activeUsers: Number(data.activeUsers) || 0,
+        newUsersToday: Number(data.newUsersToday) || 0,
+        activeInstitutions: Number(data.totalInstitutions) || 0,
+        pendingInstitutions: Number(data.pendingInstitutions) || 0,
+        completedOrders: Number(data.completedOrders) || 0,
+        cancelledOrders: Number(data.cancelledOrders) || 0,
+        avgOrderValue: Number(data.avgOrderValue) || 0,
         platformFee: 0,
         satisfactionRate: 95,
         complaintRate: 0.5
       }
       
-      // 待处理事项
-      pendingTasks.value[0].count = data.pendingInstitutions || 0
+      // 待处理事项 - 机构审核数量
+      pendingTasks.value[0].count = Number(data.pendingInstitutions) || 0
+      console.log('机构审核数量:', pendingTasks.value[0].count)
       
-      // 图表数据
+      // 待处理事项 - 资质更新审核数量
+      pendingTasks.value[2].count = Number(data.pendingQualifications) || 0
+      console.log('资质更新审核数量:', pendingTasks.value[2].count)
+      
+      // 待处理事项 - 退款申请数量
+      pendingTasks.value[3].count = Number(data.pendingRefunds) || 0
+      console.log('退款申请数量:', pendingTasks.value[3].count)
+      
+      // 图表数据 - 确保数值正确
       if (data.revenueTrend && data.revenueTrend.length > 0) {
-        revenueTrend.value = data.revenueTrend
+        revenueTrend.value = data.revenueTrend.map((item: any) => ({
+          name: item.name,
+          value: Number(item.value) || 0
+        }))
       }
       if (data.userGrowthTrend && data.userGrowthTrend.length > 0) {
-        userGrowthTrend.value = data.userGrowthTrend
+        userGrowthTrend.value = data.userGrowthTrend.map((item: any) => ({
+          name: item.name,
+          value: Number(item.value) || 0
+        }))
       }
       if (data.orderDistribution && data.orderDistribution.length > 0) {
-        orderDistribution.value = data.orderDistribution
+        orderDistribution.value = data.orderDistribution.map((item: any) => ({
+          name: item.name,
+          value: Number(item.value) || 0
+        }))
       }
       if (data.institutionRanking && data.institutionRanking.length > 0) {
-        institutionRanking.value = data.institutionRanking
+        institutionRanking.value = data.institutionRanking.map((item: any) => ({
+          ...item,
+          value: Number(item.value) || 0,
+          revenue: Number(item.revenue) || 0,
+          rating: Number(item.rating) || 0
+        }))
       }
       if (data.recentOrders && data.recentOrders.length > 0) {
         recentOrders.value = data.recentOrders
+      }
+      
+      // 地区分布（根据实际数据）
+      if (data.regionDistribution && data.regionDistribution.length > 0) {
+        regionDistribution.value = data.regionDistribution.map((item: any) => ({
+          name: item.name,
+          value: Number(item.value) || 0
+        }))
+      } else {
+        regionDistribution.value = []
       }
     }
     
     // 加载待审核机构
     const instRes = await adminApi.getInstitutions('pending', 1, 5)
+    console.log('待审核机构响应:', instRes)
     if (instRes.code === 200 && instRes.data) {
+      console.log('待审核机构数据:', instRes.data)
+      console.log('待审核机构 list:', instRes.data.list)
       pendingInstitutions.value = (instRes.data.list || []).map((inst: any) => ({
         id: inst.id,
         name: inst.name,
@@ -165,22 +253,46 @@ const loadDashboardData = async () => {
         date: inst.createdAt ? new Date(inst.createdAt).toLocaleDateString() : '',
         status: inst.status
       }))
+      console.log('处理后的待审核机构:', pendingInstitutions.value)
+      
+      // 从机构数据更新待处理数量
+      if (instRes.data.pagination) {
+        pendingTasks.value[0].count = Number(instRes.data.pagination.total)
+        console.log('从机构API更新数量:', pendingTasks.value[0].count)
+      }
     }
     
     // 加载投诉数据
     const complaintRes = await adminApi.getComplaints('pending', 1, 5)
+    console.log('投诉响应:', complaintRes)
     if (complaintRes.code === 200 && complaintRes.data) {
+      console.log('投诉数据:', complaintRes.data)
       const complaintList = complaintRes.data.list || []
       recentComplaints.value = complaintList.map((c: any) => ({
         id: c.id,
-        type: c.type || '服务投诉',
-        user: c.userName || c.userId || '用户',
+        type: c.category || '服务投诉',
+        user: c.petOwnerName || c.userId || '用户',
         status: c.status || 'pending',
         priority: c.status === 'pending' ? 'urgent' : 'high',
         createdAt: c.createdAt
       }))
       // 更新待处理投诉数量
-      pendingTasks.value[1].count = complaintRes.data.total || complaintList.length
+      const complaintTotal = Number((complaintRes.data as any).pagination?.total) || complaintList.length
+      pendingTasks.value[1].count = complaintTotal
+      console.log('投诉数量:', complaintTotal)
+    }
+    
+    // 加载投诉统计数据
+    try {
+      const complaintStatsRes = await adminApi.getComplaintStats()
+      console.log('投诉统计响应:', complaintStatsRes)
+      if (complaintStatsRes.code === 200 && complaintStatsRes.data) {
+        const pendingCount = Number(complaintStatsRes.data.pending) || 0
+        pendingTasks.value[1].count = pendingCount
+        console.log('从统计API获取待处理投诉数量:', pendingCount)
+      }
+    } catch (err) {
+      console.warn('获取投诉统计失败:', err)
     }
     
     lastUpdated.value = new Date().toLocaleTimeString()
@@ -200,13 +312,40 @@ const completionRate = computed(() => {
 })
 
 // 格式化函数
-const formatNumber = (value: number) => value.toLocaleString()
-const formatCurrency = (value: number) => `¥${value.toLocaleString()}`
+const formatNumber = (value: any) => {
+  if (value == null || value === undefined) return '0'
+  const num = Number(value)
+  if (isNaN(num)) return '0'
+  return num.toLocaleString()
+}
+const formatCurrency = (value: any) => {
+  if (value == null || value === undefined) return '¥0'
+  const num = Number(value)
+  if (isNaN(num)) return '¥0'
+  return `¥${num.toLocaleString()}`
+}
 const formatPercent = (value: number) => `${value}%`
 
 const getStatusText = (status: string) => {
-  const map: Record<string, string> = { pending: '待确认', ongoing: '进行中', completed: '已完成', cancelled: '已取消', processing: '处理中' }
+  const map: Record<string, string> = { 
+    pending: '待确认', 
+    in_progress: '进行中', 
+    ongoing: '进行中', 
+    completed: '已完成', 
+    cancelled: '已取消', 
+    processing: '处理中' 
+  }
   return map[status] || status
+}
+
+const getPaymentMethodText = (method: string) => {
+  const map: Record<string, string> = { 
+    wechat: '微信支付', 
+    alipay: '支付宝', 
+    '微信支付': '微信支付', 
+    '支付宝': '支付宝'
+  }
+  return map[method] || method
 }
 
 const getStatusClass = (status: string) => `status-${status}`
@@ -258,17 +397,42 @@ const exportReport = async (format: 'csv' | 'pdf') => {
   ElMessage.info(`正在导出${format.toUpperCase()}报表...`)
 
   try {
-    const reportData = {
-      title: '平台运营报表',
-      period: selectedPeriod.value,
-      generatedAt: new Date().toISOString(),
-      stats: stats.value,
-      detailedStats: detailedStats.value,
-      orders: recentOrders.value
-    }
+    const reportData = createPlatformReport(
+      quickRange.value,
+      {
+        total: stats.value[0].value,
+        newThisMonth: detailedStats.value.newUsersToday,
+        activeUsers: detailedStats.value.activeUsers,
+        growth: 0
+      },
+      {
+        total: stats.value[2].value,
+        thisMonth: stats.value[2].value,
+        revenue: stats.value[3].value,
+        avgOrderValue: detailedStats.value.avgOrderValue
+      },
+      {
+        total: stats.value[1].value,
+        active: detailedStats.value.activeInstitutions,
+        pending: detailedStats.value.pendingInstitutions,
+        suspended: 0
+      },
+      revenueTrend.value.map((item, index) => ({
+        month: item.name,
+        users: userGrowthTrend.value[index]?.value || 0,
+        orders: 0,
+        revenue: item.value
+      })),
+      institutionRanking.value.map(inst => ({
+        name: inst.name,
+        orders: inst.value,
+        revenue: inst.revenue,
+        rating: inst.rating
+      }))
+    )
 
     if (format === 'csv') {
-      await exportToCSV(reportData, `平台报表_${new Date().toLocaleDateString()}`)
+      await exportToCSV(reportData.sections, `平台报表_${new Date().toLocaleDateString()}`)
     } else {
       await exportToPDF(reportData, `平台报表_${new Date().toLocaleDateString()}`)
     }
@@ -278,10 +442,30 @@ const exportReport = async (format: 'csv' | 'pdf') => {
   }
 }
 
-// 切换时间周期
-const changePeriod = (period: typeof selectedPeriod.value) => {
-  selectedPeriod.value = period
-  refreshData()
+// 快捷选择变化
+const handleQuickRangeChange = (event: Event) => {
+  const target = event.target as HTMLSelectElement
+  dateMode.value = 'quick'
+  quickRange.value = target.value as any
+  customDateRange.value = null
+  loadDashboardData()
+}
+
+// 自定义日期范围变化
+const handleDateRangeChange = (range: any) => {
+  console.log('DashboardView 日期范围变化:', range)
+  if (range && range.length === 2) {
+    dateMode.value = 'custom'
+    customDateRange.value = range
+    loadDashboardData()
+  }
+}
+
+// 切换时间周期（保留向后兼容）
+const changePeriod = async (period: typeof quickRange.value) => {
+  dateMode.value = 'quick'
+  quickRange.value = period
+  await loadDashboardData()
 }
 
 // 跳转到统计详情
@@ -369,16 +553,43 @@ onUnmounted(() => {
         <p>平台数据概览与运营管理</p>
       </div>
       <div class="header-actions">
-        <div class="period-selector">
-          <button
-            v-for="period in ['today', 'week', 'month', 'year']"
-            :key="period"
-            class="period-btn"
-            :class="{ active: selectedPeriod === period }"
-            @click="changePeriod(period as any)"
-          >
-            {{ { today: '今日', week: '本周', month: '本月', year: '本年' }[period] }}
-          </button>
+        <div class="date-selector">
+          <div class="mode-tabs">
+            <button 
+              :class="['mode-tab', { active: dateMode === 'quick' }]"
+              @click="dateMode = 'quick'; customDateRange = null; loadDashboardData()"
+            >
+              快捷选择
+            </button>
+            <button 
+              :class="['mode-tab', { active: dateMode === 'custom' }]"
+              @click="dateMode = 'custom'"
+            >
+              自定义
+            </button>
+          </div>
+          
+          <template v-if="dateMode === 'quick'">
+            <select :value="quickRange" @change="handleQuickRangeChange" class="quick-select">
+              <option value="today">今日</option>
+              <option value="week">本周</option>
+              <option value="month">本月</option>
+              <option value="quarter">本季度</option>
+              <option value="year">本年</option>
+            </select>
+          </template>
+          
+          <template v-else>
+            <el-date-picker
+              v-model="customDateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              @change="handleDateRangeChange"
+              class="date-range-picker"
+            />
+          </template>
         </div>
         <span class="last-updated">
           <Clock :size="14" />
@@ -545,7 +756,7 @@ onUnmounted(() => {
                     {{ order.pet }}
                   </td>
                   <td class="amount">¥{{ order.amount }}</td>
-                  <td class="payment">{{ order.paymentMethod }}</td>
+                  <td class="payment">{{ getPaymentMethodText(order.paymentMethod) }}</td>
                   <td><span class="status-badge" :class="getStatusClass(order.status)">{{ getStatusText(order.status) }}</span></td>
                   <td>
                     <button class="action-link" @click="viewOrderDetail(order.id)">详情</button>
@@ -713,14 +924,15 @@ onUnmounted(() => {
   }
 }
 
-.period-selector {
-  display: flex; background: white; border-radius: 10px; padding: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-  .period-btn {
-    padding: 6px 14px; border: none; background: transparent; font-size: 13px;
-    color: #6B6560; cursor: pointer; border-radius: 6px; transition: all 0.2s;
-    &:hover { background: #F0F0EF; }
+.date-selector { 
+  display: flex; flex-direction: column; gap: 8px; 
+  .mode-tabs { display: flex; gap: 4px; background: white; padding: 4px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+  .mode-tab {
+    padding: 6px 12px; border: none; background: transparent; cursor: pointer; font-size: 13px; border-radius: 6px;
     &.active { background: #722ed1; color: white; }
   }
+  .quick-select { padding: 10px 16px; border: 1px solid var(--color-border, #F0F0EF); border-radius: 10px; font-size: 14px; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+  .date-range-picker { :deep(.el-input__wrapper) { padding: 10px 16px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); } }
 }
 
 .icon-btn {

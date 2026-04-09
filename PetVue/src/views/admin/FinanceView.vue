@@ -1,72 +1,111 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { DollarSign, TrendingUp, TrendingDown, Download, Calendar, CreditCard, ArrowUpRight, ArrowDownRight } from 'lucide-vue-next'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElLoading } from 'element-plus'
 import LineChart from '@/components/charts/LineChart.vue'
 import BarChart from '@/components/charts/BarChart.vue'
+import { adminApi } from '@/api/admin'
+import { fenToYuan, formatAmount } from '@/utils/feeCalculator'
 
 const selectedPeriod = ref<'week' | 'month' | 'year'>('month')
-const dateRange = ref<[string, string] | null>(null)
 
 // 财务概览
 const financeSummary = ref({
-  totalRevenue: 458920,
-  revenueTrend: 18.5,
-  platformFee: 45892,
-  feeTrend: 15.2,
-  pendingSettlement: 12580,
-  completedSettlement: 398450,
-  refundAmount: 8650,
-  refundCount: 23
+  totalRevenue: 0,
+  revenueTrend: 0,
+  platformFee: 0,
+  feeTrend: 0,
+  pendingSettlement: 0,
+  completedSettlement: 0,
+  refundAmount: 0,
+  refundCount: 0
 })
 
 // 收入趋势
-const revenueTrend = ref([
-  { name: '1月', value: 320000 },
-  { name: '2月', value: 280000 },
-  { name: '3月', value: 350000 },
-  { name: '4月', value: 420000 },
-  { name: '5月', value: 380000 },
-  { name: '6月', value: 458920 }
-])
+const revenueTrend = ref<{ name: string; value: number }[]>([])
 
 // 机构收入排名
-const institutionRevenue = ref([
-  { name: '爱宠之家', value: 89600 },
-  { name: '宠物乐园', value: 76800 },
-  { name: '萌宠寄养', value: 68500 },
-  { name: '温馨小窝', value: 52300 },
-  { name: '宠爱有家', value: 45600 }
-])
+const institutionRevenue = ref<{ name: string; value: number }[]>([])
 
 // 交易记录
-const transactions = ref([
-  { id: 'TXN001', type: 'income', description: '订单收入 - ORD20250115001', amount: 580, fee: 58, institution: '爱宠之家', date: '2025-01-15 10:30', status: 'completed' },
-  { id: 'TXN002', type: 'income', description: '订单收入 - ORD20250114002', amount: 720, fee: 72, institution: '宠物乐园', date: '2025-01-14 15:20', status: 'completed' },
-  { id: 'TXN003', type: 'refund', description: '退款 - ORD20250111005', amount: -120, fee: -12, institution: '温馨小窝', date: '2025-01-11 16:00', status: 'completed' },
-  { id: 'TXN004', type: 'settlement', description: '结算 - 爱宠之家', amount: -25000, fee: 0, institution: '爱宠之家', date: '2025-01-10 09:00', status: 'completed' },
-  { id: 'TXN005', type: 'income', description: '订单收入 - ORD20250109003', amount: 350, fee: 35, institution: '萌宠寄养', date: '2025-01-09 11:45', status: 'completed' }
-])
+const transactions = ref<any[]>([])
 
 // 待结算机构
-const pendingSettlements = ref([
-  { id: '1', institution: '爱宠之家', amount: 5680, orders: 12, lastSettlement: '2025-01-10' },
-  { id: '2', institution: '宠物乐园', amount: 3450, orders: 8, lastSettlement: '2025-01-08' },
-  { id: '3', institution: '萌宠寄养', amount: 2150, orders: 5, lastSettlement: '2025-01-05' }
-])
+const pendingSettlements = ref<any[]>([])
+
+const loading = ref(false)
+
+const loadFinanceData = async () => {
+  loading.value = true
+  try {
+    const [summaryRes, trendsRes, rankingRes, settlementsRes, transactionsRes] = await Promise.all([
+      adminApi.getFinanceSummary(selectedPeriod.value),
+      adminApi.getFinanceTrends(selectedPeriod.value),
+      adminApi.getInstitutionRanking(),
+      adminApi.getPendingSettlements(),
+      adminApi.getTransactions(undefined, 1, 5)
+    ])
+
+    if (summaryRes.data) {
+      financeSummary.value = summaryRes.data
+    }
+    if (trendsRes.data) {
+      revenueTrend.value = trendsRes.data
+    }
+    if (rankingRes.data) {
+      institutionRevenue.value = rankingRes.data
+    }
+    if (settlementsRes.data) {
+      pendingSettlements.value = settlementsRes.data
+    }
+    if (transactionsRes.data?.list) {
+      transactions.value = transactionsRes.data.list.map((t: any) => ({
+        id: t.id,
+        type: t.type,
+        description: t.description,
+        amount: t.type === 'income' ? fenToYuan(t.amount) : -fenToYuan(t.amount),
+        fee: fenToYuan(t.fee),
+        institution: t.institution || '',
+        date: t.date,
+        status: t.status
+      }))
+    }
+  } catch (error) {
+    console.error('加载财务数据失败:', error)
+    ElMessage.error('加载财务数据失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 const getTransactionTypeLabel = (type: string) => {
-  const map: Record<string, string> = { income: '收入', refund: '退款', settlement: '结算' }
+  const map: Record<string, string> = { income: '收入', refund: '退款', settlement: '结算', recharge: '充值', withdrawal: '提现', payment: '支付' }
   return map[type] || type
 }
 
 const getTransactionTypeColor = (type: string) => {
-  const map: Record<string, string> = { income: '#52c41a', refund: '#ff4d4f', settlement: '#1890ff' }
+  const map: Record<string, string> = { 
+    income: '#52c41a', refund: '#ff4d4f', settlement: '#1890ff',
+    recharge: '#722ed1', withdrawal: '#faad14', payment: '#13c2c2'
+  }
   return map[type] || '#999'
 }
 
-const processSettlement = (settlement: typeof pendingSettlements.value[0]) => {
-  ElMessage.success(`正在处理 ${settlement.institution} 的结算...`)
+const processSettlement = async (settlement: typeof pendingSettlements.value[0]) => {
+  try {
+    const loading = ElLoading.service({
+      lock: true,
+      text: '正在处理结算...',
+      background: 'rgba(0, 0, 0, 0.7)'
+    })
+    await adminApi.processSettlement(settlement.id)
+    loading.close()
+    ElMessage.success(`${settlement.institution} 结算处理成功`)
+    await loadFinanceData()
+  } catch (error) {
+    console.error('处理结算失败:', error)
+    ElMessage.error('处理结算失败')
+  }
 }
 
 const exportFinanceReport = () => {
@@ -75,7 +114,12 @@ const exportFinanceReport = () => {
 
 const changePeriod = (period: typeof selectedPeriod.value) => {
   selectedPeriod.value = period
+  loadFinanceData()
 }
+
+onMounted(() => {
+  loadFinanceData()
+})
 </script>
 
 <template>
@@ -171,7 +215,7 @@ const changePeriod = (period: typeof selectedPeriod.value) => {
               <span class="txn-meta">{{ txn.institution }} · {{ txn.date }}</span>
             </div>
             <div class="txn-amount" :class="{ negative: txn.amount < 0 }">
-              {{ txn.amount > 0 ? '+' : '' }}¥{{ Math.abs(txn.amount) }}
+              {{ txn.amount > 0 ? '+' : '' }}¥{{ Math.abs(txn.amount).toLocaleString() }}
             </div>
           </div>
         </div>

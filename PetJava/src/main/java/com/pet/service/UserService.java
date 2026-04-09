@@ -7,20 +7,23 @@ import com.pet.entity.Pet;
 import com.pet.entity.User;
 import com.pet.mapper.PetMapper;
 import com.pet.mapper.UserMapper;
+import com.pet.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class UserService {
     private final UserMapper userMapper;
     private final PetMapper petMapper;
+    private final JwtUtil jwtUtil;
+    private final PasswordEncoder passwordEncoder;
 
     public Map<String, Object> login(LoginRequest request) {
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
@@ -31,13 +34,15 @@ public class UserService {
             throw new RuntimeException("用户不存在");
         }
         
-        if (!user.getPassword().equals(request.getPassword())) {
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new RuntimeException("密码错误");
         }
         
+        String token = jwtUtil.generateToken(user.getId(), user.getRole());
+        
         Map<String, Object> result = new HashMap<>();
         result.put("user", toUserVOWithPets(user));
-        result.put("token", UUID.randomUUID().toString().replace("-", ""));
+        result.put("token", token);
         return result;
     }
 
@@ -52,7 +57,7 @@ public class UserService {
         
         User user = new User();
         user.setPhone(request.getPhone());
-        user.setPassword(request.getPassword());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
         user.setName(request.getName() != null ? request.getName() : "用户" + request.getPhone().substring(7));
         user.setAvatar("https://api.dicebear.com/7.x/avataaars/svg?seed=" + request.getPhone());
@@ -66,6 +71,11 @@ public class UserService {
 
     public User getById(String id) {
         return userMapper.selectById(id);
+    }
+
+    public User getByPhone(String phone) {
+        return userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getPhone, phone));
     }
 
     public User getByPhone(String phone, String role) {
@@ -123,10 +133,10 @@ public class UserService {
         if (user == null) {
             throw new RuntimeException("用户不存在");
         }
-        if (!user.getPassword().equals(oldPassword)) {
+        if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
             throw new RuntimeException("原密码错误");
         }
-        user.setPassword(newPassword);
+        user.setPassword(passwordEncoder.encode(newPassword));
         userMapper.updateById(user);
     }
 

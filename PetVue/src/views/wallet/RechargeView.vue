@@ -88,18 +88,25 @@ async function handleRecharge() {
   
   loading.value = true
   try {
-    const order = await walletStore.createRecharge(rechargeAmount.value, paymentMethod.value)
+    const order = await walletStore.createRecharge(amountInFen, paymentMethod.value)
     if (order) {
       ElMessage.success('充值订单创建成功，请完成支付')
-      // 模拟支付成功
-      setTimeout(() => {
-        ElMessage.success('充值成功！')
-        walletStore.fetchWallet()
-        // 如果有返回地址，返回到支付页面继续支付
-        if (returnTo) {
-          router.push(returnTo)
+      // 模拟支付成功 - 直接调用确认充值接口
+      setTimeout(async () => {
+        const confirmed = await walletStore.confirmRecharge(order.id)
+        if (confirmed) {
+          ElMessage.success('充值成功！')
+          // 立即刷新钱包和交易记录
+          await walletStore.fetchWallet()
+          await walletStore.fetchTransactions({ pageSize: 5 })
+          // 如果有返回地址，返回到支付页面继续支付
+          if (returnTo) {
+            router.push(returnTo)
+          } else {
+            router.push('/wallet')
+          }
         } else {
-          router.push('/wallet')
+          ElMessage.error('充值确认失败')
         }
       }, 1500)
     } else {

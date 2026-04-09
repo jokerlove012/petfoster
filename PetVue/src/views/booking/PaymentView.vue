@@ -114,14 +114,26 @@ const handlePayment = async () => {
   // 如果选择钱包支付，先刷新余额再检查
   if (selectedMethod.value === 'wallet') {
     await walletStore.fetchWallet()
-    const currentBalance = walletStore.balance / 100  // 分转元
-    const requiredAmount = orderInfo.value.totalPrice  // 元
+    const currentBalance = walletStore.balance  // 分
+    const requiredAmount = Math.round(orderInfo.value.totalPrice * 100)  // 元转分
+    
+    console.log('钱包支付验证:', {
+      currentBalance: currentBalance,
+      currentBalanceYuan: currentBalance / 100,
+      requiredAmount: requiredAmount,
+      requiredAmountYuan: requiredAmount / 100
+    })
+    
     if (currentBalance < requiredAmount) {
+      const currentBalanceYuan = currentBalance / 100
+      const requiredAmountYuan = requiredAmount / 100
+      
       ElMessageBox.alert(
         `<div style="text-align: center;">
           <p style="font-size: 16px; margin-bottom: 16px;">余额不足，请充值！</p>
-          <p style="color: #666;">当前余额：<span style="color: #f56c6c; font-weight: bold;">¥${currentBalance.toFixed(2)}</span></p>
-          <p style="color: #666;">应付金额：<span style="color: #e6a23c; font-weight: bold;">¥${requiredAmount.toFixed(2)}</span></p>
+          <p style="color: #666;">当前余额：<span style="color: #f56c6c; font-weight: bold;">¥${currentBalanceYuan.toFixed(2)}</span></p>
+          <p style="color: #666;">应付金额：<span style="color: #e6a23c; font-weight: bold;">¥${requiredAmountYuan.toFixed(2)}</span></p>
+          <p style="color: #999; font-size: 12px; margin-top: 12px;">差额：¥${(requiredAmountYuan - currentBalanceYuan).toFixed(2)}</p>
         </div>`,
         '支付失败',
         {
@@ -274,20 +286,15 @@ onUnmounted(() => {
 
     <!-- 底部操作栏 -->
     <div class="payment-footer">
-      <div class="footer-price">
-        <span class="price-label">应付：</span>
-        <span class="price-value" v-if="orderInfo">¥{{ orderInfo.totalPrice.toFixed(2) }}</span>
-      </div>
-      <div class="footer-actions">
-        <AppButton type="outline" @click="handleCancel">取消</AppButton>
-        <AppButton 
-          type="primary" 
-          :loading="isProcessing"
-          @click="handlePayment"
-        >
-          {{ isProcessing ? '支付中...' : '立即支付' }}
-        </AppButton>
-      </div>
+      <AppButton type="outline" @click="handleCancel">取消</AppButton>
+      <AppButton 
+        type="primary" 
+        :loading="isProcessing"
+        @click="handlePayment"
+        class="pay-btn"
+      >
+        {{ isProcessing ? '支付中...' : '立即支付' }}
+      </AppButton>
     </div>
   </div>
 </template>
@@ -553,33 +560,16 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
+  gap: 16px;
   padding: 16px 24px;
   background: white;
   border-top: 1px solid var(--color-border);
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.05);
 }
 
-.footer-price {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  
-  .price-label {
-    font-size: 14px;
-    color: var(--color-text-secondary);
-  }
-  
-  .price-value {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--color-primary);
-  }
-}
-
-.footer-actions {
-  display: flex;
-  gap: 12px;
+.pay-btn {
+  min-width: 160px;
 }
 </style>

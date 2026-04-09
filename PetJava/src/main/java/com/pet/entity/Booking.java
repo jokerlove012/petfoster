@@ -33,7 +33,9 @@ public class Booking {
     private String cancelReason;
     private String specialRequirements;
     private String emergencyContact; // JSON object
+    @TableField("user_deleted")
     private Boolean userDeleted; // 用户删除标记
+    @TableField("institution_deleted")
     private Boolean institutionDeleted; // 机构删除标记
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

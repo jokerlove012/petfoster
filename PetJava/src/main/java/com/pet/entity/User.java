@@ -19,6 +19,7 @@ public class User {
     private LocalDate birthday;
     private String address;
     private String role; // pet_owner, institution_staff, admin
+    private String status; // active, banned
     private String adminLevel; // super, normal (for admin)
     private String institutionId; // for institution_staff
     private String position; // manager, caretaker, receptionist

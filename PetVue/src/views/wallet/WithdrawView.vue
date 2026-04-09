@@ -141,7 +141,7 @@ async function handleWithdraw() {
   loading.value = true
   try {
     const withdrawal = await walletStore.createWithdrawal(
-      parseFloat(withdrawAmount.value),
+      withdrawAmountInFen.value,
       selectedAccountId.value,
       password.value
     )

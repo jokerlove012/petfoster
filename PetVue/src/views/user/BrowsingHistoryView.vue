@@ -141,7 +141,7 @@ async function loadInstitutions() {
     // 获取所有机构信息
     const response = await institutionApi.search({})
     if (response.data) {
-      response.data.items.forEach(inst => {
+      response.data.list.forEach(inst => {
         institutionsMap.value.set(inst.id, inst)
       })
     }

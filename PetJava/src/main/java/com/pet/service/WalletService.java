@@ -1,326 +1,417 @@
 package com.pet.service;
 
-import com.pet.common.PageResult;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.pet.entity.*;
+import com.pet.mapper.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class WalletService {
-    
-    // 模拟数据存储
-    private final Map<String, Map<String, Object>> wallets = new ConcurrentHashMap<>();
-    private final Map<String, List<Map<String, Object>>> transactions = new ConcurrentHashMap<>();
-    private final Map<String, List<Map<String, Object>>> withdrawals = new ConcurrentHashMap<>();
-    private final Map<String, List<Map<String, Object>>> accounts = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, Object>> rechargeOrders = new ConcurrentHashMap<>();
 
-    // 获取或创建钱包
-    public Map<String, Object> getWallet(String userId) {
-        return wallets.computeIfAbsent(userId, k -> createWallet(userId));
-    }
+    private final WalletMapper walletMapper;
+    private final WalletTransactionMapper transactionMapper;
+    private final RechargeOrderMapper rechargeOrderMapper;
+    private final WithdrawalMapper withdrawalMapper;
+    private final WithdrawalAccountMapper accountMapper;
+    private final WalletAuditLogMapper auditLogMapper;
 
-    private Map<String, Object> createWallet(String userId) {
-        Map<String, Object> wallet = new HashMap<>();
-        wallet.put("id", UUID.randomUUID().toString());
-        wallet.put("userId", userId);
-        wallet.put("userType", "pet_owner");
-        wallet.put("balance", 10000); // 初始余额 100 元（单位：分）
-        wallet.put("frozenBalance", 0);
-        wallet.put("totalIncome", 0);
-        wallet.put("totalWithdraw", 0);
-        wallet.put("status", "active");
-        wallet.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        wallet.put("updatedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+    private static final int MIN_WITHDRAWAL = 1000;
+    private static final int MAX_DAILY_WITHDRAWAL = 5000000;
+    private static final int MAX_DAILY_WITHDRAWAL_COUNT = 5;
+
+    public Wallet getOrCreateWallet(String userId, String userType) {
+        Wallet wallet = walletMapper.selectOne(new LambdaQueryWrapper<Wallet>()
+                .eq(Wallet::getUserId, userId));
+        
+        if (wallet == null) {
+            wallet = new Wallet();
+            wallet.setUserId(userId);
+            wallet.setUserType(userType);
+            wallet.setBalance(0);
+            wallet.setFrozenBalance(0);
+            wallet.setTotalIncome(0);
+            wallet.setTotalWithdraw(0);
+            wallet.setStatus("active");
+            wallet.setDailyWithdrawAmount(0);
+            wallet.setDailyWithdrawCount(0);
+            walletMapper.insert(wallet);
+        } else {
+            checkAndResetDailyLimit(wallet);
+        }
+        
         return wallet;
     }
 
-    public Map<String, Object> getBalance(String userId) {
-        Map<String, Object> wallet = getWallet(userId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("balance", wallet.get("balance"));
-        result.put("frozenBalance", wallet.get("frozenBalance"));
-        return result;
+    private void checkAndResetDailyLimit(Wallet wallet) {
+        LocalDate today = LocalDate.now();
+        if (wallet.getLastWithdrawDate() == null || !wallet.getLastWithdrawDate().equals(today)) {
+            wallet.setDailyWithdrawAmount(0);
+            wallet.setDailyWithdrawCount(0);
+            wallet.setLastWithdrawDate(today);
+            walletMapper.updateById(wallet);
+        }
     }
 
-    public Map<String, Object> createRechargeOrder(String userId, Map<String, Object> data) {
-        Map<String, Object> wallet = getWallet(userId);
+    public RechargeOrder createRechargeOrder(String userId, int amount, String paymentMethod) {
+        if (amount <= 0) {
+            throw new RuntimeException("充值金额必须大于0");
+        }
+
+        Wallet wallet = getOrCreateWallet(userId, "pet_owner");
         
-        Number amountNum = (Number) data.get("amount");
-        int amount = (int) (amountNum.doubleValue() * 100); // 元转分
-        String paymentMethod = (String) data.getOrDefault("paymentMethod", "alipay");
-        
-        String orderId = UUID.randomUUID().toString();
-        Map<String, Object> order = new HashMap<>();
-        order.put("id", orderId);
-        order.put("walletId", wallet.get("id"));
-        order.put("amount", amount);
-        order.put("paymentMethod", paymentMethod);
-        order.put("status", "paid"); // 模拟直接支付成功
-        order.put("paymentOrderId", "PAY" + System.currentTimeMillis());
-        order.put("paidAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        order.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        order.put("expiredAt", LocalDateTime.now().plusMinutes(30).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        
-        rechargeOrders.put(orderId, order);
-        
-        // 更新钱包余额
-        int currentBalance = (int) wallet.get("balance");
-        wallet.put("balance", currentBalance + amount);
-        wallet.put("updatedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        
-        // 添加交易记录
-        addTransaction(userId, "recharge", amount, 0, "充值 - " + paymentMethod, null);
+        RechargeOrder order = new RechargeOrder();
+        order.setWalletId(wallet.getId());
+        order.setUserId(userId);
+        order.setAmount(amount);
+        order.setPaymentMethod(paymentMethod);
+        order.setStatus("pending");
+        order.setCreatedAt(LocalDateTime.now());
+        order.setExpiredAt(LocalDateTime.now().plusHours(1));
+        rechargeOrderMapper.insert(order);
         
         return order;
     }
 
-    public Map<String, Object> getRechargeStatus(String userId, String orderId) {
-        return rechargeOrders.getOrDefault(orderId, new HashMap<>());
+    @Transactional
+    public boolean confirmRecharge(String orderId) {
+        RechargeOrder order = rechargeOrderMapper.selectById(orderId);
+        if (order == null || !"pending".equals(order.getStatus())) {
+            return false;
+        }
+
+        Wallet wallet = walletMapper.selectById(order.getWalletId());
+        if (wallet == null) {
+            return false;
+        }
+
+        int oldBalance = wallet.getBalance();
+        wallet.setBalance(oldBalance + order.getAmount());
+        wallet.setUpdatedAt(LocalDateTime.now());
+        walletMapper.updateById(wallet);
+
+        order.setStatus("paid");
+        order.setPaidAt(LocalDateTime.now());
+        rechargeOrderMapper.updateById(order);
+
+        addTransaction(wallet.getId(), wallet.getUserId(), "recharge", order.getAmount(), 0, 
+                oldBalance, wallet.getBalance(), "充值成功", null, null);
+
+        return true;
     }
 
-    public Map<String, Object> createWithdrawal(String userId, Map<String, Object> data) {
-        Map<String, Object> wallet = getWallet(userId);
+    @Transactional
+    public Withdrawal createWithdrawal(String userId, int amount, String accountId, String withdrawPassword) {
+        if (amount < MIN_WITHDRAWAL) {
+            throw new RuntimeException("最低提现金额为10元");
+        }
+
+        Wallet wallet = getOrCreateWallet(userId, "pet_owner");
         
-        Number amountNum = (Number) data.get("amount");
-        int amount = (int) (amountNum.doubleValue() * 100); // 元转分
-        String accountId = (String) data.get("accountId");
+        if (!"active".equals(wallet.getStatus())) {
+            throw new RuntimeException("钱包已被冻结，无法提现");
+        }
+
+        if (wallet.getWithdrawPassword() != null) {
+            if (withdrawPassword == null || !withdrawPassword.equals(wallet.getWithdrawPassword())) {
+                throw new RuntimeException("提现密码错误");
+            }
+        }
+
+        checkAndResetDailyLimit(wallet);
         
-        int currentBalance = (int) wallet.get("balance");
-        if (amount > currentBalance) {
-            throw new RuntimeException("余额不足");
+        if (wallet.getDailyWithdrawAmount() + amount > MAX_DAILY_WITHDRAWAL) {
+            throw new RuntimeException("超出今日最高提现限额50000元");
         }
         
-        // 计算手续费 (1%, 最低1元)
-        int fee = Math.max(amount / 100, 100);
-        int actualAmount = amount - fee;
+        if (wallet.getDailyWithdrawCount() >= MAX_DAILY_WITHDRAWAL_COUNT) {
+            throw new RuntimeException("今日提现次数已达上限5次");
+        }
+
+        int fee = calculateFee(amount);
+        int totalAmount = amount + fee;
         
-        String withdrawalId = UUID.randomUUID().toString();
-        Map<String, Object> withdrawal = new HashMap<>();
-        withdrawal.put("id", withdrawalId);
-        withdrawal.put("walletId", wallet.get("id"));
-        withdrawal.put("amount", amount);
-        withdrawal.put("fee", fee);
-        withdrawal.put("actualAmount", actualAmount);
-        withdrawal.put("accountId", accountId);
-        withdrawal.put("status", "pending");
-        withdrawal.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        if (wallet.getBalance() < totalAmount) {
+            throw new RuntimeException("余额不足");
+        }
+
+        int actualAmount = amount;
         
-        withdrawals.computeIfAbsent(userId, k -> new ArrayList<>()).add(0, withdrawal);
-        
-        // 冻结余额
-        wallet.put("balance", currentBalance - amount);
-        wallet.put("frozenBalance", (int) wallet.get("frozenBalance") + amount);
-        wallet.put("updatedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        
-        // 添加交易记录
-        addTransaction(userId, "withdrawal", amount, fee, "提现申请", withdrawalId);
-        
+        Withdrawal withdrawal = new Withdrawal();
+        withdrawal.setWalletId(wallet.getId());
+        withdrawal.setUserId(userId);
+        withdrawal.setAmount(amount);
+        withdrawal.setFee(fee);
+        withdrawal.setActualAmount(actualAmount);
+        withdrawal.setAccountId(accountId);
+        withdrawal.setStatus("pending");
+        withdrawal.setCreatedAt(LocalDateTime.now());
+        withdrawalMapper.insert(withdrawal);
+
+        int oldBalance = wallet.getBalance();
+        wallet.setBalance(oldBalance - totalAmount);
+        wallet.setTotalWithdraw(wallet.getTotalWithdraw() + amount);
+        wallet.setDailyWithdrawAmount(wallet.getDailyWithdrawAmount() + amount);
+        wallet.setDailyWithdrawCount(wallet.getDailyWithdrawCount() + 1);
+        wallet.setLastWithdrawDate(LocalDate.now());
+        wallet.setUpdatedAt(LocalDateTime.now());
+        walletMapper.updateById(wallet);
+
+        addTransaction(wallet.getId(), wallet.getUserId(), "withdrawal", amount, fee, 
+                oldBalance, wallet.getBalance(), "申请提现", null, withdrawal.getId());
+
         return withdrawal;
     }
 
-    public PageResult<Map<String, Object>> getWithdrawals(String userId, int page, int pageSize) {
-        List<Map<String, Object>> userWithdrawals = withdrawals.getOrDefault(userId, new ArrayList<>());
-        int total = userWithdrawals.size();
-        int start = (page - 1) * pageSize;
-        int end = Math.min(start + pageSize, total);
-        
-        List<Map<String, Object>> list = start < total ? userWithdrawals.subList(start, end) : new ArrayList<>();
-        return PageResult.of(list, page, pageSize, total);
+    private int calculateFee(int amount) {
+        int fee = (int) Math.ceil(amount * 0.01);
+        return Math.max(fee, 100);
     }
 
-    public void cancelWithdrawal(String userId, String id) {
-        List<Map<String, Object>> userWithdrawals = withdrawals.getOrDefault(userId, new ArrayList<>());
-        Map<String, Object> wallet = getWallet(userId);
+    @Transactional
+    public boolean deductBalance(String userId, int amount, String description, String relatedOrderId) {
+        Wallet wallet = getOrCreateWallet(userId, "pet_owner");
         
-        for (Map<String, Object> w : userWithdrawals) {
-            if (id.equals(w.get("id")) && "pending".equals(w.get("status"))) {
-                w.put("status", "cancelled");
-                // 解冻余额
-                int amount = (int) w.get("amount");
-                wallet.put("balance", (int) wallet.get("balance") + amount);
-                wallet.put("frozenBalance", (int) wallet.get("frozenBalance") - amount);
-                break;
-            }
+        if (wallet.getBalance() < amount) {
+            log.warn("余额不足: userId={}, balance={}, required={}", userId, wallet.getBalance(), amount);
+            return false;
         }
+
+        int oldBalance = wallet.getBalance();
+        wallet.setBalance(oldBalance - amount);
+        wallet.setUpdatedAt(LocalDateTime.now());
+        walletMapper.updateById(wallet);
+
+        addTransaction(wallet.getId(), userId, "payment", amount, 0, 
+                oldBalance, wallet.getBalance(), description, relatedOrderId, null);
+
+        log.info("扣款成功: userId={}, amount={}, balanceBefore={}, balanceAfter={}", 
+                userId, amount, oldBalance, wallet.getBalance());
+        return true;
     }
 
-    public PageResult<Map<String, Object>> getTransactions(String userId, int page, int pageSize, 
-            String type, String startDate, String endDate) {
-        List<Map<String, Object>> userTx = transactions.getOrDefault(userId, new ArrayList<>());
+    @Transactional
+    public boolean addIncome(String userId, int amount, String description, String relatedOrderId) {
+        Wallet wallet = getOrCreateWallet(userId, "institution_staff");
         
-        // 过滤
-        List<Map<String, Object>> filtered = new ArrayList<>();
-        for (Map<String, Object> tx : userTx) {
-            if (type != null && !type.isEmpty() && !type.equals(tx.get("type"))) continue;
-            filtered.add(tx);
+        int oldBalance = wallet.getBalance();
+        wallet.setBalance(oldBalance + amount);
+        wallet.setTotalIncome(wallet.getTotalIncome() + amount);
+        wallet.setUpdatedAt(LocalDateTime.now());
+        walletMapper.updateById(wallet);
+
+        addTransaction(wallet.getId(), userId, "income", amount, 0, 
+                oldBalance, wallet.getBalance(), description, relatedOrderId, null);
+
+        return true;
+    }
+
+    private void addTransaction(String walletId, String userId, String type, int amount, int fee, 
+                                 int balanceBefore, int balanceAfter, String description, 
+                                 String relatedOrderId, String relatedWithdrawalId) {
+        WalletTransaction transaction = new WalletTransaction();
+        transaction.setWalletId(walletId);
+        transaction.setUserId(userId);
+        transaction.setType(type);
+        transaction.setAmount(amount);
+        transaction.setFee(fee);
+        transaction.setBalanceBefore(balanceBefore);
+        transaction.setBalanceAfter(balanceAfter);
+        transaction.setStatus("success");
+        transaction.setDescription(description);
+        transaction.setRelatedOrderId(relatedOrderId);
+        transaction.setRelatedWithdrawalId(relatedWithdrawalId);
+        transaction.setCreatedAt(LocalDateTime.now());
+        transactionMapper.insert(transaction);
+    }
+
+    public Map<String, Object> getWalletInfo(String userId) {
+        Wallet wallet = getOrCreateWallet(userId, "pet_owner");
+        
+        Map<String, Object> info = new HashMap<>();
+        info.put("balance", wallet.getBalance());
+        info.put("frozenBalance", wallet.getFrozenBalance());
+        info.put("totalIncome", wallet.getTotalIncome());
+        info.put("totalWithdraw", wallet.getTotalWithdraw());
+        info.put("status", wallet.getStatus());
+        info.put("hasWithdrawPassword", wallet.getWithdrawPassword() != null);
+        return info;
+    }
+
+    public List<Map<String, Object>> getTransactions(String userId, String type, int page, int pageSize) {
+        Wallet wallet = getOrCreateWallet(userId, "pet_owner");
+        
+        LambdaQueryWrapper<WalletTransaction> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(WalletTransaction::getWalletId, wallet.getId());
+        if (type != null && !type.isEmpty()) {
+            wrapper.eq(WalletTransaction::getType, type);
+        }
+        wrapper.orderByDesc(WalletTransaction::getCreatedAt);
+        
+        List<WalletTransaction> transactions = transactionMapper.selectList(wrapper);
+        List<Map<String, Object>> result = new ArrayList<>();
+        
+        for (WalletTransaction t : transactions) {
+            Map<String, Object> vo = new HashMap<>();
+            vo.put("id", t.getId());
+            vo.put("type", t.getType());
+            vo.put("amount", t.getAmount());
+            vo.put("fee", t.getFee());
+            vo.put("status", t.getStatus());
+            vo.put("description", t.getDescription());
+            vo.put("createdAt", t.getCreatedAt());
+            result.add(vo);
         }
         
-        int total = filtered.size();
-        int start = (page - 1) * pageSize;
-        int end = Math.min(start + pageSize, total);
-        
-        List<Map<String, Object>> list = start < total ? filtered.subList(start, end) : new ArrayList<>();
-        return PageResult.of(list, page, pageSize, total);
+        return result;
     }
 
     public List<Map<String, Object>> getWithdrawalAccounts(String userId) {
-        return accounts.computeIfAbsent(userId, k -> {
-            // 创建默认账户
-            List<Map<String, Object>> defaultAccounts = new ArrayList<>();
-            Map<String, Object> account = new HashMap<>();
-            account.put("id", UUID.randomUUID().toString());
-            account.put("userId", userId);
-            account.put("type", "alipay");
-            account.put("accountName", "测试用户");
-            account.put("accountNumber", "138****8888");
-            account.put("isDefault", true);
-            account.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-            defaultAccounts.add(account);
-            return defaultAccounts;
-        });
+        List<WithdrawalAccount> accounts = accountMapper.selectList(new LambdaQueryWrapper<WithdrawalAccount>()
+                .eq(WithdrawalAccount::getUserId, userId)
+                .eq(WithdrawalAccount::getDeleted, 0)
+                .orderByDesc(WithdrawalAccount::getIsDefault)
+                .orderByDesc(WithdrawalAccount::getCreatedAt));
+        
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (WithdrawalAccount a : accounts) {
+            Map<String, Object> vo = new HashMap<>();
+            vo.put("id", a.getId());
+            vo.put("type", a.getType());
+            vo.put("accountName", a.getAccountName());
+            String accountNumber = a.getAccountNumber();
+            if (accountNumber != null && accountNumber.length() > 4) {
+                vo.put("accountNumber", "****" + accountNumber.substring(accountNumber.length() - 4));
+            } else {
+                vo.put("accountNumber", accountNumber);
+            }
+            vo.put("bankName", a.getBankName());
+            vo.put("bankBranch", a.getBankBranch());
+            vo.put("isDefault", a.getIsDefault() == 1);
+            result.add(vo);
+        }
+        return result;
     }
 
-    public Map<String, Object> addWithdrawalAccount(String userId, Map<String, Object> data) {
-        List<Map<String, Object>> userAccounts = accounts.computeIfAbsent(userId, k -> new ArrayList<>());
+    public WithdrawalAccount addWithdrawalAccount(String userId, Map<String, Object> data) {
+        WithdrawalAccount account = new WithdrawalAccount();
+        account.setUserId(userId);
+        account.setType((String) data.get("type"));
+        account.setAccountName((String) data.get("accountName"));
+        account.setAccountNumber((String) data.get("accountNumber"));
+        account.setBankName((String) data.get("bankName"));
+        account.setBankBranch((String) data.get("bankBranch"));
+        account.setIsDefault(data.get("isDefault") != null ? (Boolean) data.get("isDefault") ? 1 : 0 : 0);
+        account.setCreatedAt(LocalDateTime.now());
         
-        Map<String, Object> account = new HashMap<>();
-        account.put("id", UUID.randomUUID().toString());
-        account.put("userId", userId);
-        account.put("type", data.get("type"));
-        account.put("accountName", data.get("accountName"));
-        account.put("accountNumber", maskAccountNumber((String) data.get("accountNumber")));
-        account.put("bankName", data.get("bankName"));
-        account.put("isDefault", userAccounts.isEmpty());
-        account.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        if (account.getIsDefault() == 1) {
+            List<WithdrawalAccount> existing = accountMapper.selectList(new LambdaQueryWrapper<WithdrawalAccount>()
+                    .eq(WithdrawalAccount::getUserId, userId));
+            for (WithdrawalAccount a : existing) {
+                a.setIsDefault(0);
+                accountMapper.updateById(a);
+            }
+        }
         
-        userAccounts.add(account);
+        accountMapper.insert(account);
         return account;
     }
 
-    public void deleteWithdrawalAccount(String userId, String id) {
-        List<Map<String, Object>> userAccounts = accounts.getOrDefault(userId, new ArrayList<>());
-        userAccounts.removeIf(a -> id.equals(a.get("id")));
-    }
-
-    public void setDefaultAccount(String userId, String id) {
-        List<Map<String, Object>> userAccounts = accounts.getOrDefault(userId, new ArrayList<>());
-        for (Map<String, Object> account : userAccounts) {
-            account.put("isDefault", id.equals(account.get("id")));
-        }
-    }
-
-    public Map<String, Object> getIncomeStatistics(String userId, String period) {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalIncome", 50000); // 500元
-        stats.put("periodIncome", 10000); // 100元
-        stats.put("orderCount", 5);
-        stats.put("averageOrderAmount", 10000);
+    @Transactional
+    public boolean deleteWithdrawalAccount(String userId, String accountId) {
+        WithdrawalAccount account = accountMapper.selectOne(new LambdaQueryWrapper<WithdrawalAccount>()
+                .eq(WithdrawalAccount::getId, accountId)
+                .eq(WithdrawalAccount::getUserId, userId)
+                .eq(WithdrawalAccount::getDeleted, 0));
         
-        List<Map<String, Object>> dailyData = new ArrayList<>();
-        for (int i = 6; i >= 0; i--) {
-            Map<String, Object> day = new HashMap<>();
-            day.put("date", LocalDateTime.now().minusDays(i).format(DateTimeFormatter.ISO_LOCAL_DATE));
-            day.put("amount", (int) (Math.random() * 5000));
-            day.put("orderCount", (int) (Math.random() * 3));
-            dailyData.add(day);
-        }
-        stats.put("dailyData", dailyData);
-        
-        return stats;
-    }
-
-    private void addTransaction(String userId, String type, int amount, int fee, String description, String relatedId) {
-        Map<String, Object> wallet = getWallet(userId);
-        List<Map<String, Object>> userTx = transactions.computeIfAbsent(userId, k -> new ArrayList<>());
-        
-        Map<String, Object> tx = new HashMap<>();
-        tx.put("id", UUID.randomUUID().toString());
-        tx.put("walletId", wallet.get("id"));
-        tx.put("type", type);
-        tx.put("amount", amount);
-        tx.put("fee", fee);
-        tx.put("balanceBefore", (int) wallet.get("balance") - amount);
-        tx.put("balanceAfter", wallet.get("balance"));
-        tx.put("status", "success");
-        tx.put("description", description);
-        tx.put("relatedWithdrawalId", relatedId);
-        tx.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        
-        userTx.add(0, tx);
-    }
-
-    private String maskAccountNumber(String number) {
-        if (number == null || number.length() < 8) return number;
-        return number.substring(0, 3) + "****" + number.substring(number.length() - 4);
-    }
-
-    // 添加收入（用于机构收款）
-    public void addIncome(String userId, int amount, String description, String relatedOrderId) {
-        Map<String, Object> wallet = getWallet(userId);
-        
-        // 更新余额
-        int currentBalance = (int) wallet.get("balance");
-        int currentTotalIncome = (int) wallet.get("totalIncome");
-        wallet.put("balance", currentBalance + amount);
-        wallet.put("totalIncome", currentTotalIncome + amount);
-        wallet.put("updatedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        
-        // 添加交易记录
-        List<Map<String, Object>> userTx = transactions.computeIfAbsent(userId, k -> new ArrayList<>());
-        
-        Map<String, Object> tx = new HashMap<>();
-        tx.put("id", UUID.randomUUID().toString());
-        tx.put("walletId", wallet.get("id"));
-        tx.put("type", "income");
-        tx.put("amount", amount);
-        tx.put("fee", 0);
-        tx.put("balanceBefore", currentBalance);
-        tx.put("balanceAfter", currentBalance + amount);
-        tx.put("status", "success");
-        tx.put("description", description);
-        tx.put("relatedOrderId", relatedOrderId);
-        tx.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        
-        userTx.add(0, tx);
-    }
-
-    // 扣除余额（用于订单支付）
-    public boolean deductBalance(String userId, int amount, String description, String relatedOrderId) {
-        Map<String, Object> wallet = getWallet(userId);
-        int currentBalance = (int) wallet.get("balance");
-        
-        // 检查余额是否足够
-        if (currentBalance < amount) {
+        if (account == null) {
             return false;
         }
         
-        // 扣除余额
-        wallet.put("balance", currentBalance - amount);
-        wallet.put("updatedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        
-        // 添加交易记录
-        List<Map<String, Object>> userTx = transactions.computeIfAbsent(userId, k -> new ArrayList<>());
-        
-        Map<String, Object> tx = new HashMap<>();
-        tx.put("id", UUID.randomUUID().toString());
-        tx.put("walletId", wallet.get("id"));
-        tx.put("type", "payment");
-        tx.put("amount", amount);
-        tx.put("fee", 0);
-        tx.put("balanceBefore", currentBalance);
-        tx.put("balanceAfter", currentBalance - amount);
-        tx.put("status", "success");
-        tx.put("description", description);
-        tx.put("relatedOrderId", relatedOrderId);
-        tx.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        
-        userTx.add(0, tx);
+        account.setDeleted(1);
+        account.setUpdatedAt(LocalDateTime.now());
+        accountMapper.updateById(account);
         return true;
+    }
+
+    @Transactional
+    public boolean setDefaultAccount(String userId, String accountId) {
+        WithdrawalAccount account = accountMapper.selectOne(new LambdaQueryWrapper<WithdrawalAccount>()
+                .eq(WithdrawalAccount::getId, accountId)
+                .eq(WithdrawalAccount::getUserId, userId)
+                .eq(WithdrawalAccount::getDeleted, 0));
+        
+        if (account == null) {
+            return false;
+        }
+        
+        List<WithdrawalAccount> existing = accountMapper.selectList(new LambdaQueryWrapper<WithdrawalAccount>()
+                .eq(WithdrawalAccount::getUserId, userId)
+                .eq(WithdrawalAccount::getDeleted, 0));
+        for (WithdrawalAccount a : existing) {
+            a.setIsDefault(a.getId().equals(accountId) ? 1 : 0);
+            accountMapper.updateById(a);
+        }
+        
+        return true;
+    }
+
+    public void setWithdrawPassword(String userId, String password) {
+        Wallet wallet = getOrCreateWallet(userId, "pet_owner");
+        wallet.setWithdrawPassword(password);
+        wallet.setUpdatedAt(LocalDateTime.now());
+        walletMapper.updateById(wallet);
+    }
+
+    public boolean verifyWithdrawPassword(String userId, String password) {
+        Wallet wallet = getOrCreateWallet(userId, "pet_owner");
+        return wallet.getWithdrawPassword() != null && wallet.getWithdrawPassword().equals(password);
+    }
+
+    public Map<String, Object> getIncomeStatistics(String userId) {
+        Wallet wallet = getOrCreateWallet(userId, "institution_staff");
+        
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startOfDay = now.toLocalDate().atStartOfDay();
+        LocalDateTime startOfWeek = now.minusDays(now.getDayOfWeek().getValue() - 1).toLocalDate().atStartOfDay();
+        LocalDateTime startOfMonth = now.withDayOfMonth(1).toLocalDate().atStartOfDay();
+        
+        int dailyIncome = calculateIncomeByDateRange(wallet.getId(), startOfDay, now);
+        int weeklyIncome = calculateIncomeByDateRange(wallet.getId(), startOfWeek, now);
+        int monthlyIncome = calculateIncomeByDateRange(wallet.getId(), startOfMonth, now);
+        
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalIncome", wallet.getTotalIncome());
+        stats.put("dailyIncome", dailyIncome);
+        stats.put("weeklyIncome", weeklyIncome);
+        stats.put("monthlyIncome", monthlyIncome);
+        return stats;
+    }
+
+    private int calculateIncomeByDateRange(String walletId, LocalDateTime start, LocalDateTime end) {
+        List<WalletTransaction> transactions = transactionMapper.selectList(new LambdaQueryWrapper<WalletTransaction>()
+                .eq(WalletTransaction::getWalletId, walletId)
+                .eq(WalletTransaction::getType, "income")
+                .between(WalletTransaction::getCreatedAt, start, end));
+        
+        return transactions.stream().mapToInt(WalletTransaction::getAmount).sum();
+    }
+
+    private void addAuditLog(String walletId, String userId, String operation, String details) {
+        WalletAuditLog auditLog = new WalletAuditLog();
+        auditLog.setWalletId(walletId);
+        auditLog.setUserId(userId);
+        auditLog.setOperation(operation);
+        auditLog.setDetails(details);
+        auditLog.setCreatedAt(LocalDateTime.now());
+        auditLogMapper.insert(auditLog);
     }
 }

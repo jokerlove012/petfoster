@@ -34,10 +34,7 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public Result<Map<String, Object>> getCurrentUser(@RequestHeader(value = "X-User-Id", required = false) String userId) {
-        if (userId == null) {
-            return Result.error(401, "未登录");
-        }
+    public Result<Map<String, Object>> getCurrentUser(@RequestAttribute("userId") String userId) {
         com.pet.entity.User user = userService.getById(userId);
         if (user == null) {
             return Result.error(401, "用户不存在");
@@ -63,7 +60,7 @@ public class AuthController {
 
     @PostMapping("/change-password")
     public Result<Void> changePassword(
-            @RequestHeader("X-User-Id") String userId,
+            @RequestAttribute("userId") String userId,
             @RequestBody Map<String, String> request) {
         String oldPassword = request.get("oldPassword");
         String newPassword = request.get("newPassword");

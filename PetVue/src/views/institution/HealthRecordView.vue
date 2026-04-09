@@ -16,7 +16,7 @@ const todayPets = ref<any[]>([])
 // 加载今日待记录宠物
 const loadTodayPets = async () => {
   try {
-    const res = await api.get('/institution/bookings?page=1&pageSize=100')
+    const res = await api.get('/institution/bookings?page=1&pageSize=100') as any
     if (res.code === 200 && res.data) {
       const bookings = res.data.list || res.data || []
       // 筛选进行中的订单
@@ -26,7 +26,7 @@ const loadTodayPets = async () => {
       const petsWithStatus = await Promise.all(inProgressBookings.map(async (booking: any) => {
         let recorded = false
         try {
-          const recordsRes = await api.get(`/health-records/booking/${booking.id}`)
+          const recordsRes = await api.get(`/health-records/booking/${booking.id}`) as any
           if (recordsRes.code === 200 && recordsRes.data) {
             const today = new Date().toISOString().split('T')[0]
             recorded = recordsRes.data.some((r: any) => r.date && r.date.startsWith(today))
@@ -70,8 +70,7 @@ const currentRecord = ref({
   temperature: '',
   weight: '',
   abnormalSigns: [] as string[],
-  photos: [] as string[],
-  videos: [] as string[]
+  photos: [] as string[]
 })
 
 // 历史记录
@@ -81,14 +80,14 @@ const historyRecords = ref<any[]>([])
 const loadHistoryRecords = async () => {
   try {
     // 获取所有进行中订单的健康记录
-    const res = await api.get('/institution/bookings?page=1&pageSize=100')
+    const res = await api.get('/institution/bookings?page=1&pageSize=100') as any
     if (res.code === 200 && res.data) {
       const bookings = res.data.list || res.data || []
       const allRecords: any[] = []
       
       for (const booking of bookings) {
         try {
-          const recordsRes = await api.get(`/health-records/booking/${booking.id}`)
+          const recordsRes = await api.get(`/health-records/booking/${booking.id}`) as any
           if (recordsRes.code === 200 && recordsRes.data) {
             recordsRes.data.forEach((record: any) => {
               allRecords.push({
@@ -170,8 +169,7 @@ const openRecordForm = (pet: typeof todayPets.value[0]) => {
     temperature: '',
     weight: '',
     abnormalSigns: [],
-    photos: [],
-    videos: []
+    photos: []
   }
   showRecordForm.value = true
 }
@@ -227,16 +225,10 @@ const saveRecord = async () => {
 
 // 文件上传引用
 const photoInputRef = ref<HTMLInputElement | null>(null)
-const videoInputRef = ref<HTMLInputElement | null>(null)
 const uploadingPhoto = ref(false)
-const uploadingVideo = ref(false)
 
 const triggerPhotoUpload = () => {
   photoInputRef.value?.click()
-}
-
-const triggerVideoUpload = () => {
-  videoInputRef.value?.click()
 }
 
 const handlePhotoUpload = async (event: Event) => {
@@ -251,7 +243,7 @@ const handlePhotoUpload = async (event: Event) => {
       
       const res = await api.post('/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      }) as any
       
       if (res.code === 200 && res.data) {
         currentRecord.value.photos.push(res.data.url || res.data)
@@ -266,39 +258,8 @@ const handlePhotoUpload = async (event: Event) => {
   }
 }
 
-const handleVideoUpload = async (event: Event) => {
-  const input = event.target as HTMLInputElement
-  if (!input.files || input.files.length === 0) return
-  
-  uploadingVideo.value = true
-  try {
-    for (const file of Array.from(input.files)) {
-      const formData = new FormData()
-      formData.append('file', file)
-      
-      const res = await api.post('/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
-      
-      if (res.code === 200 && res.data) {
-        currentRecord.value.videos.push(res.data.url || res.data)
-        ElMessage.success(`视频 ${file.name} 上传成功`)
-      }
-    }
-  } catch (error) {
-    ElMessage.error('视频上传失败')
-  } finally {
-    uploadingVideo.value = false
-    input.value = ''
-  }
-}
-
 const removePhoto = (index: number) => {
   currentRecord.value.photos.splice(index, 1)
-}
-
-const removeVideo = (index: number) => {
-  currentRecord.value.videos.splice(index, 1)
 }
 
 const viewHistory = (record: typeof historyRecords.value[0]) => {
@@ -454,7 +415,7 @@ onMounted(() => {
         </div>
 
         <div class="form-section">
-          <h4><Camera :size="18" /> 照片/视频</h4>
+          <h4><Camera :size="18" /> 照片</h4>
           <div class="media-upload">
             <input 
               ref="photoInputRef" 
@@ -467,26 +428,11 @@ onMounted(() => {
             <button class="upload-btn" :disabled="uploadingPhoto" @click="triggerPhotoUpload">
               <Camera :size="20" /> {{ uploadingPhoto ? '上传中...' : '拍照/上传照片' }}
             </button>
-            <input 
-              ref="videoInputRef" 
-              type="file" 
-              accept="video/*" 
-              multiple 
-              style="display: none" 
-              @change="handleVideoUpload"
-            />
-            <button class="upload-btn" :disabled="uploadingVideo" @click="triggerVideoUpload">
-              <Upload :size="20" /> {{ uploadingVideo ? '上传中...' : '上传视频' }}
-            </button>
           </div>
-          <div v-if="currentRecord.photos.length || currentRecord.videos.length" class="media-preview">
+          <div v-if="currentRecord.photos.length" class="media-preview">
             <div v-for="(photo, index) in currentRecord.photos" :key="photo" class="media-item">
               <img :src="photo" alt="照片" class="preview-img" />
               <button class="remove-btn" @click="removePhoto(index)">×</button>
-            </div>
-            <div v-for="(video, index) in currentRecord.videos" :key="video" class="media-item video">
-              <span>🎬 视频{{ index + 1 }}</span>
-              <button class="remove-btn" @click="removeVideo(index)">×</button>
             </div>
           </div>
         </div>

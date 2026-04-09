@@ -1,38 +1,102 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { RotateCcw, Search, Filter, Check, X, Eye, Clock, AlertCircle, CheckCircle } from 'lucide-vue-next'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { adminApi } from '@/api/admin'
 
 const searchKeyword = ref('')
 const statusFilter = ref('all')
 const dateRange = ref<[string, string] | null>(null)
+const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
+
+interface Refund {
+  id: string
+  orderId?: string
+  user?: string
+  phone?: string
+  institution?: string
+  amount?: number
+  reason?: string
+  status?: string
+  applyTime?: string
+  images?: string[]
+  processTime?: string
+  rejectReason?: string
+}
 
 // 退款统计
 const refundStats = ref({
-  pending: 8,
-  processing: 3,
-  completed: 156,
-  rejected: 12,
-  totalAmount: 28650
+  pending: 0,
+  processing: 0,
+  completed: 0,
+  rejected: 0,
+  totalAmount: 0
 })
 
 // 退款列表
-const refundList = ref([
-  { id: 'RF001', orderId: 'ORD20250115001', user: '张三', phone: '138****1234', institution: '爱宠之家', amount: 580, reason: '行程变更，无法按时寄养', status: 'pending', applyTime: '2025-01-15 10:30', images: [] },
-  { id: 'RF002', orderId: 'ORD20250114002', user: '李四', phone: '139****5678', institution: '宠物乐园', amount: 320, reason: '宠物生病，需要在家照顾', status: 'processing', applyTime: '2025-01-14 15:20', images: [] },
-  { id: 'RF003', orderId: 'ORD20250113003', user: '王五', phone: '137****9012', institution: '萌宠寄养', amount: 450, reason: '服务不满意', status: 'pending', applyTime: '2025-01-13 09:15', images: ['proof1.jpg'] },
-  { id: 'RF004', orderId: 'ORD20250112004', user: '赵六', phone: '136****3456', institution: '温馨小窝', amount: 280, reason: '重复下单', status: 'completed', applyTime: '2025-01-12 14:00', processTime: '2025-01-12 16:30', images: [] },
-  { id: 'RF005', orderId: 'ORD20250111005', user: '钱七', phone: '135****7890', institution: '宠爱有家', amount: 680, reason: '机构临时关闭', status: 'rejected', applyTime: '2025-01-11 11:45', processTime: '2025-01-11 15:00', rejectReason: '已超过退款时限', images: [] }
-])
+const refundList = ref<Refund[]>([])
 
 const filteredList = computed(() => {
-  return refundList.value.filter(item => {
-    const matchSearch = !searchKeyword.value || 
-      item.orderId.includes(searchKeyword.value) || 
-      item.user.includes(searchKeyword.value)
-    const matchStatus = statusFilter.value === 'all' || item.status === statusFilter.value
-    return matchSearch && matchStatus
-  })
+  if (!searchKeyword.value) return refundList.value
+  const query = searchKeyword.value.toLowerCase()
+  return refundList.value.filter(item =>
+    (item.orderId || item.id || '').toLowerCase().includes(query) ||
+    (item.user || '').toLowerCase().includes(query)
+  )
+})
+
+// 加载统计数据
+const loadStats = async () => {
+  try {
+    const res = await adminApi.getRefundStats()
+    if (res.code === 200 && res.data) {
+      refundStats.value = res.data
+    }
+  } catch (error) {
+    console.error('加载统计数据失败:', error)
+  }
+}
+
+// 加载退款列表
+const loadRefunds = async () => {
+  loading.value = true
+  try {
+    const status = statusFilter.value === 'all' ? undefined : statusFilter.value
+    const res = await adminApi.getRefunds(status, currentPage.value, pageSize.value)
+    if (res.code === 200 && res.data) {
+      refundList.value = res.data.list || []
+      total.value = res.data.total || 0
+    }
+  } catch (error) {
+    console.error('加载退款列表失败:', error)
+    ElMessage.error('加载退款列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadData = async () => {
+  await Promise.all([loadStats(), loadRefunds()])
+}
+
+onMounted(() => {
+  loadData()
+})
+
+watch([statusFilter, currentPage], () => {
+  loadRefunds()
+})
+
+let searchTimeout: any
+watch(searchKeyword, () => {
+  if (searchTimeout) clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    currentPage.value = 1
+    loadRefunds()
+  }, 500)
 })
 
 const getStatusLabel = (status: string) => {
@@ -45,20 +109,45 @@ const getStatusType = (status: string) => {
   return map[status] || 'info'
 }
 
-const viewDetail = (refund: typeof refundList.value[0]) => {
-  ElMessage.info(`查看退款详情: ${refund.id}`)
+const viewDetail = async (refund: Refund) => {
+  try {
+    const res = await adminApi.getRefundDetail(refund.id)
+    if (res.code === 200) {
+      ElMessage.success('查看详情功能即将上线')
+    }
+  } catch (error) {
+    ElMessage.info(`查看退款详情: ${refund.id}`)
+  }
 }
 
-const approveRefund = async (refund: typeof refundList.value[0]) => {
-  await ElMessageBox.confirm(`确认同意退款 ¥${refund.amount} 给用户 ${refund.user}？`, '确认退款', { type: 'warning' })
-  refund.status = 'completed'
-  ElMessage.success('退款已批准，款项将在1-3个工作日内退回')
+const approveRefund = async (refund: Refund) => {
+  try {
+    await ElMessageBox.confirm(`确认同意退款 ¥${refund.amount} 给用户 ${refund.user}？`, '确认退款', { type: 'warning' })
+    const res = await adminApi.approveRefund(refund.id)
+    if (res.code === 200) {
+      ElMessage.success('退款已批准，款项将在1-3个工作日内退回')
+      loadData()
+    }
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('操作失败')
+    }
+  }
 }
 
-const rejectRefund = async (refund: typeof refundList.value[0]) => {
-  const { value } = await ElMessageBox.prompt('请输入拒绝原因', '拒绝退款', { inputPattern: /.+/, inputErrorMessage: '请输入拒绝原因' })
-  refund.status = 'rejected'
-  ElMessage.success('已拒绝退款申请')
+const rejectRefund = async (refund: Refund) => {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入拒绝原因', '拒绝退款', { inputPattern: /.+/, inputErrorMessage: '请输入拒绝原因' })
+    const res = await adminApi.rejectRefund(refund.id, value)
+    if (res.code === 200) {
+      ElMessage.success('已拒绝退款申请')
+      loadData()
+    }
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('操作失败')
+    }
+  }
 }
 </script>
 

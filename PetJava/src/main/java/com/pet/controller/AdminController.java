@@ -22,8 +22,11 @@ public class AdminController {
     // ========== 仪表盘统计 ==========
 
     @GetMapping("/dashboard/stats")
-    public Result<Map<String, Object>> getDashboardStats() {
-        return Result.success(adminService.getDashboardStats());
+    public Result<Map<String, Object>> getDashboardStats(
+            @RequestParam(defaultValue = "month") String period,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return Result.success(adminService.getDashboardStats(period, startDate, endDate));
     }
 
     // ========== 机构审核 ==========
@@ -64,6 +67,36 @@ public class AdminController {
         return Result.success(adminService.getUsers(role, keyword, page, pageSize));
     }
 
+    @GetMapping("/users/{id}")
+    public Result<Map<String, Object>> getUserDetail(@PathVariable String id) {
+        return Result.success(adminService.getUserDetail(id));
+    }
+
+    @PostMapping("/users")
+    public Result<Map<String, Object>> createUser(@RequestBody Map<String, Object> data) {
+        return Result.success(adminService.createUser(data));
+    }
+
+    @PutMapping("/users/{id}")
+    public Result<Map<String, Object>> updateUser(
+            @PathVariable String id,
+            @RequestBody Map<String, Object> data) {
+        return Result.success(adminService.updateUser(id, data));
+    }
+
+    @PatchMapping("/users/{id}/status")
+    public Result<Map<String, Object>> toggleUserStatus(
+            @PathVariable String id,
+            @RequestBody Map<String, String> body) {
+        return Result.success(adminService.toggleUserStatus(id, body.get("status")));
+    }
+
+    @DeleteMapping("/users/{id}")
+    public Result<Void> deleteUser(@PathVariable String id) {
+        adminService.deleteUser(id);
+        return Result.success();
+    }
+
     // ========== 订单管理 ==========
 
     @GetMapping("/orders")
@@ -72,6 +105,11 @@ public class AdminController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
         return Result.success(adminService.getOrders(status, page, pageSize));
+    }
+
+    @GetMapping("/orders/{id}")
+    public Result<Map<String, Object>> getOrderDetail(@PathVariable String id) {
+        return Result.success(adminService.getOrderDetail(id));
     }
 
     // ========== 投诉管理 ==========
@@ -109,5 +147,43 @@ public class AdminController {
                 body.get("remedies"),
                 body.getOrDefault("resolvedBy", "管理员")
         ));
+    }
+
+    // ========== 财务管理 ==========
+
+    @GetMapping("/finance/summary")
+    public Result<Map<String, Object>> getFinanceSummary(
+            @RequestParam(defaultValue = "month") String period) {
+        return Result.success(adminService.getFinanceSummary(period));
+    }
+
+    @GetMapping("/finance/trends")
+    public Result<java.util.List<Map<String, Object>>> getFinanceTrends(
+            @RequestParam(defaultValue = "month") String period) {
+        return Result.success(adminService.getFinanceTrends(period));
+    }
+
+    @GetMapping("/finance/institutions/ranking")
+    public Result<java.util.List<Map<String, Object>>> getInstitutionRanking() {
+        return Result.success(adminService.getInstitutionRanking());
+    }
+
+    @GetMapping("/finance/transactions")
+    public Result<PageResult<Map<String, Object>>> getTransactions(
+            @RequestParam(required = false) String type,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        return Result.success(adminService.getTransactions(type, page, pageSize));
+    }
+
+    @GetMapping("/finance/settlements")
+    public Result<java.util.List<Map<String, Object>>> getPendingSettlements() {
+        return Result.success(adminService.getPendingSettlements());
+    }
+
+    @PostMapping("/finance/settlements/{id}/process")
+    public Result<Void> processSettlement(@PathVariable String id) {
+        adminService.processSettlement(id);
+        return Result.success();
     }
 }

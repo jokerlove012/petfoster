@@ -1,11 +1,12 @@
 package com.pet.controller;
 
-import com.pet.common.PageResult;
 import com.pet.common.Result;
 import com.pet.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -14,110 +15,111 @@ import java.util.Map;
 public class WalletController {
     private final WalletService walletService;
 
-    // 获取钱包信息
     @GetMapping
-    public Result<Map<String, Object>> getWallet(@RequestHeader("X-User-Id") String userId) {
-        return Result.success(walletService.getWallet(userId));
+    public Result<Map<String, Object>> getWallet(@RequestAttribute("userId") String userId) {
+        return Result.success(walletService.getWalletInfo(userId));
     }
 
-    // 获取余额
-    @GetMapping("/balance")
-    public Result<Map<String, Object>> getBalance(@RequestHeader("X-User-Id") String userId) {
-        return Result.success(walletService.getBalance(userId));
-    }
-
-    // 创建充值订单
     @PostMapping("/recharge")
     public Result<Map<String, Object>> createRechargeOrder(
-            @RequestHeader("X-User-Id") String userId,
+            @RequestAttribute("userId") String userId,
             @RequestBody Map<String, Object> data) {
-        return Result.success(walletService.createRechargeOrder(userId, data));
+        int amount = ((Number) data.get("amount")).intValue();
+        String paymentMethod = (String) data.get("paymentMethod");
+        Map<String, Object> result = new HashMap<>();
+        result.put("order", walletService.createRechargeOrder(userId, amount, paymentMethod));
+        return Result.success(result);
     }
 
-    // 查询充值状态
-    @GetMapping("/recharge/{orderId}")
-    public Result<Map<String, Object>> getRechargeStatus(
-            @RequestHeader("X-User-Id") String userId,
-            @PathVariable String orderId) {
-        return Result.success(walletService.getRechargeStatus(userId, orderId));
-    }
-
-    // 创建提现申请
-    @PostMapping("/withdraw")
-    public Result<Map<String, Object>> createWithdrawal(
-            @RequestHeader("X-User-Id") String userId,
-            @RequestBody Map<String, Object> data) {
-        return Result.success(walletService.createWithdrawal(userId, data));
-    }
-
-    // 获取提现记录
-    @GetMapping("/withdrawals")
-    public Result<PageResult<Map<String, Object>>> getWithdrawals(
-            @RequestHeader("X-User-Id") String userId,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int pageSize) {
-        return Result.success(walletService.getWithdrawals(userId, page, pageSize));
-    }
-
-    // 取消提现
-    @PostMapping("/withdrawals/{id}/cancel")
-    public Result<Void> cancelWithdrawal(
-            @RequestHeader("X-User-Id") String userId,
-            @PathVariable String id) {
-        walletService.cancelWithdrawal(userId, id);
+    @PostMapping("/recharge/{orderId}/confirm")
+    public Result<Void> confirmRecharge(@PathVariable String orderId) {
+        walletService.confirmRecharge(orderId);
         return Result.success();
     }
 
-    // 获取交易记录
-    @GetMapping("/transactions")
-    public Result<PageResult<Map<String, Object>>> getTransactions(
-            @RequestHeader("X-User-Id") String userId,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int pageSize,
-            @RequestParam(required = false) String type,
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
-        return Result.success(walletService.getTransactions(userId, page, pageSize, type, startDate, endDate));
+    @PostMapping("/withdraw")
+    public Result<Map<String, Object>> createWithdrawal(
+            @RequestAttribute("userId") String userId,
+            @RequestBody Map<String, Object> data) {
+        int amount = ((Number) data.get("amount")).intValue();
+        String accountId = (String) data.get("accountId");
+        String withdrawPassword = (String) data.get("withdrawPassword");
+        Map<String, Object> result = new HashMap<>();
+        result.put("withdrawal", walletService.createWithdrawal(userId, amount, accountId, withdrawPassword));
+        return Result.success(result);
     }
 
-    // 获取提现账户列表
+    @GetMapping("/transactions")
+    public Result<List<Map<String, Object>>> getTransactions(
+            @RequestAttribute("userId") String userId,
+            @RequestParam(required = false) String type,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return Result.success(walletService.getTransactions(userId, type, page, pageSize));
+    }
+
     @GetMapping("/accounts")
-    public Result<java.util.List<Map<String, Object>>> getWithdrawalAccounts(
-            @RequestHeader("X-User-Id") String userId) {
+    public Result<List<Map<String, Object>>> getWithdrawalAccounts(
+            @RequestAttribute("userId") String userId) {
         return Result.success(walletService.getWithdrawalAccounts(userId));
     }
 
-    // 添加提现账户
     @PostMapping("/accounts")
     public Result<Map<String, Object>> addWithdrawalAccount(
-            @RequestHeader("X-User-Id") String userId,
+            @RequestAttribute("userId") String userId,
             @RequestBody Map<String, Object> data) {
-        return Result.success(walletService.addWithdrawalAccount(userId, data));
+        Map<String, Object> result = new HashMap<>();
+        result.put("account", walletService.addWithdrawalAccount(userId, data));
+        return Result.success(result);
     }
 
-    // 删除提现账户
     @DeleteMapping("/accounts/{id}")
     public Result<Void> deleteWithdrawalAccount(
-            @RequestHeader("X-User-Id") String userId,
+            @RequestAttribute("userId") String userId,
             @PathVariable String id) {
-        walletService.deleteWithdrawalAccount(userId, id);
-        return Result.success();
+        boolean success = walletService.deleteWithdrawalAccount(userId, id);
+        if (success) {
+            return Result.success();
+        } else {
+            return Result.error("删除失败");
+        }
     }
 
-    // 设置默认账户
     @PutMapping("/accounts/{id}/default")
     public Result<Void> setDefaultAccount(
-            @RequestHeader("X-User-Id") String userId,
+            @RequestAttribute("userId") String userId,
             @PathVariable String id) {
-        walletService.setDefaultAccount(userId, id);
+        boolean success = walletService.setDefaultAccount(userId, id);
+        if (success) {
+            return Result.success();
+        } else {
+            return Result.error("设置失败");
+        }
+    }
+
+    @PostMapping("/withdraw-password")
+    public Result<Void> setWithdrawPassword(
+            @RequestAttribute("userId") String userId,
+            @RequestBody Map<String, Object> data) {
+        String password = (String) data.get("password");
+        walletService.setWithdrawPassword(userId, password);
         return Result.success();
     }
 
-    // 获取收入统计
+    @PostMapping("/withdraw-password/verify")
+    public Result<Map<String, Object>> verifyWithdrawPassword(
+            @RequestAttribute("userId") String userId,
+            @RequestBody Map<String, Object> data) {
+        String password = (String) data.get("password");
+        boolean valid = walletService.verifyWithdrawPassword(userId, password);
+        Map<String, Object> result = new HashMap<>();
+        result.put("valid", valid);
+        return Result.success(result);
+    }
+
     @GetMapping("/income/statistics")
     public Result<Map<String, Object>> getIncomeStatistics(
-            @RequestHeader("X-User-Id") String userId,
-            @RequestParam(defaultValue = "month") String period) {
-        return Result.success(walletService.getIncomeStatistics(userId, period));
+            @RequestAttribute("userId") String userId) {
+        return Result.success(walletService.getIncomeStatistics(userId));
     }
 }
