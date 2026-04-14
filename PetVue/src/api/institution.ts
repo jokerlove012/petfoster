@@ -82,8 +82,9 @@ export const institutionApi = {
 // 机构管理端API
 export const institutionManageApi = {
   // 获取仪表盘统计数据
-  getDashboardStats(): Promise<ApiResponse<any>> {
-    return api.get('/institution/dashboard/stats')
+  getDashboardStats(period?: 'today' | 'week' | 'month' | 'year'): Promise<ApiResponse<any>> {
+    const params = period ? `?period=${period}` : ''
+    return api.get(`/institution/dashboard/stats${params}`)
   },
 
   // 获取最近订单

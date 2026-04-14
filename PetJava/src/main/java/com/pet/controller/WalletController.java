@@ -43,7 +43,7 @@ public class WalletController {
             @RequestBody Map<String, Object> data) {
         int amount = ((Number) data.get("amount")).intValue();
         String accountId = (String) data.get("accountId");
-        String withdrawPassword = (String) data.get("withdrawPassword");
+        String withdrawPassword = (String) data.get("password");
         Map<String, Object> result = new HashMap<>();
         result.put("withdrawal", walletService.createWithdrawal(userId, amount, accountId, withdrawPassword));
         return Result.success(result);

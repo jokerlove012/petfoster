@@ -17,6 +17,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 用户服务类
+ * 处理用户登录、注册、个人信息管理等业务逻辑
+ */
 @Service
 @RequiredArgsConstructor
 public class UserService {
@@ -25,6 +29,12 @@ public class UserService {
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
 
+    /**
+     * 用户登录
+     * 验证手机号和密码，成功后生成JWT令牌
+     * @param request 登录请求对象
+     * @return 包含用户信息和token的Map
+     */
     public Map<String, Object> login(LoginRequest request) {
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhone, request.getPhone())

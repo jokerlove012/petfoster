@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { User, Lock, Bell, Camera, Save, PawPrint, Plus, Edit, Trash2, X } from 'lucide-vue-next'
+import { User, Lock, Bell, Camera, Save, PawPrint, Plus, Edit, Trash2, X, Key } from 'lucide-vue-next'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api/auth'
+import { uploadApi } from '@/api/upload'
+import { walletApi } from '@/api/wallet'
 import api from '@/api/index'
 
 const authStore = useAuthStore()
 const activeTab = ref('basic')
 const loading = ref(false)
+const avatarInput = ref<HTMLInputElement | null>(null)
 
 // 用户信息
 const userInfo = ref({
@@ -25,6 +28,11 @@ const userInfo = ref({
 // 密码修改
 const passwordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
 
+// 支付密码修改
+const payPasswordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
+const hasPayPassword = ref(false)
+const showSetPayPassword = ref(false)
+
 // 通知设置
 const notificationSettings = ref({
   orderNotify: true, promotionNotify: false, systemNotify: true, smsNotify: true, emailNotify: false
@@ -39,13 +47,25 @@ const petForm = ref({
   vaccinated: true, neutered: false, healthNotes: ''
 })
 
+// 加载钱包信息
+const loadWalletInfo = async () => {
+  try {
+    const res = await walletApi.getWallet()
+    if (res.code === 200 && res.data) {
+      hasPayPassword.value = (res.data as any).hasWithdrawPassword || false
+    }
+  } catch (error) {
+    console.error('加载钱包信息失败:', error)
+  }
+}
+
 // 加载用户资料
 const loadProfile = async () => {
   try {
     loading.value = true
     const res = await authApi.getProfile()
     if (res.data) {
-      const user = res.data
+      const user = res.data as any
       userInfo.value = {
         avatar: user.avatar || '',
         nickname: user.name || '',
@@ -62,9 +82,11 @@ const loadProfile = async () => {
       }
       // 更新 authStore
       if (authStore.user) {
+        ;(authStore.user as any).pets = user.pets
         authStore.user = { ...authStore.user, ...user }
       }
     }
+    await loadWalletInfo()
   } catch (error: any) {
     console.error('加载用户资料失败:', error)
   } finally {
@@ -115,7 +137,7 @@ const savePet = async () => {
     }
     // 同步到 authStore
     if (authStore.user) {
-      authStore.user.pets = [...pets.value]
+      ;(authStore.user as any).pets = [...pets.value]
     }
     showPetDialog.value = false
     resetPetForm()
@@ -131,7 +153,7 @@ const deletePet = async (pet: any) => {
     pets.value = pets.value.filter(p => p.id !== pet.id)
     // 同步到 authStore
     if (authStore.user) {
-      authStore.user.pets = [...pets.value]
+      ;(authStore.user as any).pets = [...pets.value]
     }
     ElMessage.success('宠物已删除')
   } catch (error: any) {
@@ -152,7 +174,7 @@ const saveBasicInfo = async () => {
       gender: userInfo.value.gender,
       birthday: userInfo.value.birthday,
       address: userInfo.value.address
-    })
+    } as any)
     if (res.data) {
       // 更新 authStore
       if (authStore.user) {
@@ -177,8 +199,64 @@ const changePassword = async () => {
     ElMessage.error(error.message || '密码修改失败')
   }
 }
+
+const setPayPassword = async () => {
+  if (payPasswordForm.value.newPassword !== payPasswordForm.value.confirmPassword) { 
+    ElMessage.error('两次输入的密码不一致')
+    return 
+  }
+  if (payPasswordForm.value.newPassword.length < 6) { 
+    ElMessage.error('密码长度不能少于6位')
+    return 
+  }
+  try {
+    loading.value = true
+    await walletApi.setWithdrawPassword(payPasswordForm.value.newPassword)
+    ElMessage.success(hasPayPassword.value ? '支付密码修改成功' : '支付密码设置成功')
+    hasPayPassword.value = true
+    payPasswordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
+    showSetPayPassword.value = false
+  } catch (error: any) {
+    ElMessage.error(error.message || '操作失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 const saveNotificationSettings = () => { ElMessage.success('通知设置已保存') }
-const uploadAvatar = () => { ElMessage.info('点击上传头像') }
+
+const uploadAvatar = () => {
+  if (!avatarInput.value) {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0]
+      if (file) {
+        await handleAvatarUpload(file)
+      }
+    }
+    avatarInput.value = input
+  }
+  avatarInput.value.click()
+}
+
+const handleAvatarUpload = async (file: File) => {
+  try {
+    loading.value = true
+    const res = await uploadApi.upload(file)
+    if (res.code === 200 && res.data) {
+      userInfo.value.avatar = res.data.url
+      ElMessage.success('头像上传成功')
+    } else {
+      ElMessage.error(res.message || '头像上传失败')
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || '头像上传失败')
+  } finally {
+    loading.value = false
+  }
+}
 </script>
 
 <template>
@@ -201,7 +279,8 @@ const uploadAvatar = () => { ElMessage.info('点击上传头像') }
         <div v-if="activeTab === 'basic'" class="content-panel">
           <div class="avatar-section">
             <div class="avatar-wrapper" @click="uploadAvatar">
-              <div class="avatar">{{ userInfo.nickname.charAt(0) }}</div>
+              <img v-if="userInfo.avatar" :src="userInfo.avatar" class="avatar-img" />
+              <div v-else class="avatar">{{ userInfo.nickname ? userInfo.nickname.charAt(0) : 'U' }}</div>
               <div class="avatar-overlay"><Camera :size="20" /></div>
             </div>
             <span class="avatar-hint">点击更换头像</span>
@@ -262,12 +341,22 @@ const uploadAvatar = () => { ElMessage.info('点击上传头像') }
 
         <!-- 账户安全 -->
         <div v-if="activeTab === 'security'" class="content-panel">
-          <h3>修改密码</h3>
-          <div class="form-section">
+          <h3>修改登录密码</h3>
+          <div class="form-section" style="margin-bottom: 40px;">
             <div class="form-group"><label>当前密码</label><input v-model="passwordForm.oldPassword" type="password" /></div>
             <div class="form-group"><label>新密码</label><input v-model="passwordForm.newPassword" type="password" /></div>
             <div class="form-group"><label>确认新密码</label><input v-model="passwordForm.confirmPassword" type="password" /></div>
             <button class="btn-save" @click="changePassword"><Lock :size="16" /> 修改密码</button>
+          </div>
+
+          <h3>支付密码</h3>
+          <div class="form-section">
+            <p class="pay-password-hint">
+              {{ hasPayPassword ? '您已设置支付密码，用于提现等敏感操作验证' : '您还未设置支付密码，设置后可用于提现等敏感操作' }}
+            </p>
+            <button class="btn-save" @click="showSetPayPassword = true">
+              <Key :size="16" /> {{ hasPayPassword ? '修改支付密码' : '设置支付密码' }}
+            </button>
           </div>
         </div>
 
@@ -285,6 +374,23 @@ const uploadAvatar = () => { ElMessage.info('点击上传头像') }
         </div>
       </div>
     </div>
+
+    <el-dialog v-model="showSetPayPassword" :title="hasPayPassword ? '重置支付密码' : '设置支付密码'" width="90%" :max-width="450">
+      <div class="pay-password-form">
+        <div class="form-group">
+          <label>新支付密码</label>
+          <el-input v-model="payPasswordForm.newPassword" type="password" show-password placeholder="请输入新支付密码（至少6位）" />
+        </div>
+        <div class="form-group">
+          <label>确认新支付密码</label>
+          <el-input v-model="payPasswordForm.confirmPassword" type="password" show-password placeholder="请再次输入新支付密码" />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showSetPayPassword = false">取消</el-button>
+        <el-button type="primary" :loading="loading" @click="setPayPassword">确认</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 添加/编辑宠物弹窗 -->
     <div v-if="showPetDialog" class="dialog-overlay" @click.self="showPetDialog = false">
@@ -349,10 +455,29 @@ const uploadAvatar = () => { ElMessage.info('点击上传头像') }
 .avatar-section { display: flex; flex-direction: column; align-items: center; margin-bottom: 32px;
   .avatar-wrapper { position: relative; cursor: pointer;
     .avatar { width: 100px; height: 100px; border-radius: 50%; background: linear-gradient(135deg, #722ed1, #9254de); display: flex; align-items: center; justify-content: center; font-size: 36px; color: white; font-weight: 600; }
+    .avatar-img { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; }
     .avatar-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.5); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; opacity: 0; transition: opacity 0.2s; }
     &:hover .avatar-overlay { opacity: 1; }
   }
   .avatar-hint { font-size: 12px; color: #9A958F; margin-top: 8px; }
+}
+
+.pay-password-hint {
+  color: #9A958F;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.pay-password-form {
+  .form-group {
+    margin-bottom: 20px;
+    label {
+      display: block;
+      font-size: 14px;
+      color: #6B6560;
+      margin-bottom: 8px;
+    }
+  }
 }
 
 .form-section { max-width: 400px; }

@@ -12,27 +12,50 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * 认证控制器
+ * 处理用户登录、注册、登出、获取当前用户信息等认证相关请求
+ */
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
 public class AuthController {
     private final UserService userService;
 
+    /**
+     * 用户登录接口
+     * @param request 登录请求对象，包含手机号和密码
+     * @return 登录成功后返回用户信息和token
+     */
     @PostMapping("/login")
     public Result<Map<String, Object>> login(@Valid @RequestBody LoginRequest request) {
         return Result.success(userService.login(request));
     }
 
+    /**
+     * 用户注册接口
+     * @param request 注册请求对象，包含手机号、密码、姓名等信息
+     * @return 注册成功后返回用户信息和token
+     */
     @PostMapping("/register")
     public Result<Map<String, Object>> register(@Valid @RequestBody RegisterRequest request) {
         return Result.success(userService.register(request));
     }
 
+    /**
+     * 用户登出接口
+     * @return 成功响应
+     */
     @PostMapping("/logout")
     public Result<Void> logout() {
         return Result.success();
     }
 
+    /**
+     * 获取当前登录用户信息
+     * @param userId 从请求属性中获取的用户ID
+     * @return 当前用户的详细信息
+     */
     @GetMapping("/me")
     public Result<Map<String, Object>> getCurrentUser(@RequestAttribute("userId") String userId) {
         com.pet.entity.User user = userService.getById(userId);
@@ -51,6 +74,10 @@ public class AuthController {
         return Result.success(vo);
     }
 
+    /**
+     * 刷新token接口
+     * @return 新的token
+     */
     @PostMapping("/refresh")
     public Result<Map<String, Object>> refreshToken() {
         Map<String, Object> result = new HashMap<>();
@@ -58,6 +85,12 @@ public class AuthController {
         return Result.success(result);
     }
 
+    /**
+     * 修改密码接口
+     * @param userId 当前用户ID
+     * @param request 包含旧密码和新密码的请求体
+     * @return 成功响应
+     */
     @PostMapping("/change-password")
     public Result<Void> changePassword(
             @RequestAttribute("userId") String userId,

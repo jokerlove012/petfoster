@@ -54,9 +54,13 @@ export const useWalletStore = defineStore('wallet', () => {
     loading.value = true
     try {
       const res = await walletApi.getWallet()
-      if (res.code === 200) {
+      if (res && res.code === 200 && res.data) {
         wallet.value = res.data
+      } else {
+        console.warn('获取钱包信息失败:', res)
       }
+    } catch (error) {
+      console.error('获取钱包信息错误:', error)
     } finally {
       loading.value = false
     }
@@ -120,19 +124,27 @@ export const useWalletStore = defineStore('wallet', () => {
     loading.value = true
     try {
       const res = await walletApi.getTransactions(params)
-      if (res.code === 200 && res.data) {
+      if (res && res.code === 200 && res.data) {
         if (Array.isArray(res.data)) {
           transactions.value = res.data
           transactionsTotal.value = res.data.length
         } else if ((res.data as any).list) {
           const data = res.data as any
-          transactions.value = data.list
+          transactions.value = data.list || []
           transactionsTotal.value = data.pagination?.total ?? data.total ?? data.list?.length ?? 0
         } else {
           transactions.value = []
           transactionsTotal.value = 0
         }
+      } else {
+        console.warn('获取交易记录失败:', res)
+        transactions.value = []
+        transactionsTotal.value = 0
       }
+    } catch (error) {
+      console.error('获取交易记录错误:', error)
+      transactions.value = []
+      transactionsTotal.value = 0
     } finally {
       loading.value = false
     }

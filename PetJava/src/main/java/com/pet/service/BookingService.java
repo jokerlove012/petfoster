@@ -29,6 +29,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 
+/**
+ * 订单服务类
+ * 处理寄养预约订单的创建、查询、支付、入住、退房等核心业务逻辑
+ */
 @Service
 @RequiredArgsConstructor
 public class BookingService {

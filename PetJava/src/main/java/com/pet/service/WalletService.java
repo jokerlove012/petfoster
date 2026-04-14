@@ -5,6 +5,7 @@ import com.pet.entity.*;
 import com.pet.mapper.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,7 @@ public class WalletService {
     private final WithdrawalMapper withdrawalMapper;
     private final WithdrawalAccountMapper accountMapper;
     private final WalletAuditLogMapper auditLogMapper;
+    private final PasswordEncoder passwordEncoder;
 
     private static final int MIN_WITHDRAWAL = 1000;
     private static final int MAX_DAILY_WITHDRAWAL = 5000000;
@@ -121,7 +123,7 @@ public class WalletService {
         }
 
         if (wallet.getWithdrawPassword() != null) {
-            if (withdrawPassword == null || !withdrawPassword.equals(wallet.getWithdrawPassword())) {
+            if (withdrawPassword == null || !passwordEncoder.matches(withdrawPassword, wallet.getWithdrawPassword())) {
                 throw new RuntimeException("提现密码错误");
             }
         }
@@ -366,14 +368,14 @@ public class WalletService {
 
     public void setWithdrawPassword(String userId, String password) {
         Wallet wallet = getOrCreateWallet(userId, "pet_owner");
-        wallet.setWithdrawPassword(password);
+        wallet.setWithdrawPassword(passwordEncoder.encode(password));
         wallet.setUpdatedAt(LocalDateTime.now());
         walletMapper.updateById(wallet);
     }
 
     public boolean verifyWithdrawPassword(String userId, String password) {
         Wallet wallet = getOrCreateWallet(userId, "pet_owner");
-        return wallet.getWithdrawPassword() != null && wallet.getWithdrawPassword().equals(password);
+        return wallet.getWithdrawPassword() != null && passwordEncoder.matches(password, wallet.getWithdrawPassword());
     }
 
     public Map<String, Object> getIncomeStatistics(String userId) {

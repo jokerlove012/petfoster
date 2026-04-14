@@ -10,8 +10,10 @@ import com.pet.entity.Booking;
 import com.pet.entity.Review;
 import com.pet.entity.User;
 import com.pet.mapper.BookingMapper;
+import com.pet.mapper.InstitutionMapper;
 import com.pet.mapper.ReviewMapper;
 import com.pet.mapper.UserMapper;
+import com.pet.entity.Institution;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ public class ReviewService {
     private final ReviewMapper reviewMapper;
     private final BookingMapper bookingMapper;
     private final UserMapper userMapper;
+    private final InstitutionMapper institutionMapper;
     private final ObjectMapper objectMapper;
 
     @SneakyThrows
@@ -56,6 +59,10 @@ public class ReviewService {
         System.out.println("创建评价 - bookingId: " + request.getBookingId() + ", institutionId: " + booking.getInstitutionId());
         reviewMapper.insert(review);
         System.out.println("评价创建成功 - reviewId: " + review.getId());
+
+        // 更新机构的评分和评价数量
+        updateInstitutionRating(booking.getInstitutionId());
+
         return toReviewVO(review);
     }
 
@@ -117,7 +124,56 @@ public class ReviewService {
     }
 
     public void delete(String id) {
-        reviewMapper.deleteById(id);
+        Review review = reviewMapper.selectById(id);
+        if (review != null) {
+            String institutionId = review.getInstitutionId();
+            reviewMapper.deleteById(id);
+            // 删除评价后也需要更新机构的评分和评价数量
+            updateInstitutionRating(institutionId);
+        }
+    }
+
+    @SneakyThrows
+    private void updateInstitutionRating(String institutionId) {
+        // 查询该机构的所有评价
+        List<Review> reviews = reviewMapper.selectList(
+                new LambdaQueryWrapper<Review>()
+                        .eq(Review::getInstitutionId, institutionId));
+
+        // 计算评价数量
+        int reviewCount = reviews.size();
+
+        // 计算平均评分
+        java.math.BigDecimal averageRating = java.math.BigDecimal.ZERO;
+        if (reviewCount > 0) {
+            java.math.BigDecimal sum = java.math.BigDecimal.ZERO;
+            for (Review review : reviews) {
+                if (StringUtils.hasText(review.getRating())) {
+                    Map<String, Object> ratingMap = objectMapper.readValue(
+                            review.getRating(),
+                            new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                    Object overall = ratingMap.get("overall");
+                    if (overall instanceof Number) {
+                        sum = sum.add(java.math.BigDecimal.valueOf(((Number) overall).doubleValue()));
+                    }
+                }
+            }
+            averageRating = sum.divide(
+                    java.math.BigDecimal.valueOf(reviewCount),
+                    1,
+                    java.math.RoundingMode.HALF_UP);
+        }
+
+        // 更新机构
+        Institution institution = institutionMapper.selectById(institutionId);
+        if (institution != null) {
+            institution.setRating(averageRating);
+            institution.setReviewCount(reviewCount);
+            institutionMapper.updateById(institution);
+            System.out.println("机构评分已更新 - institutionId: " + institutionId +
+                    ", rating: " + averageRating +
+                    ", reviewCount: " + reviewCount);
+        }
     }
 
     // 机构端获取评价列表

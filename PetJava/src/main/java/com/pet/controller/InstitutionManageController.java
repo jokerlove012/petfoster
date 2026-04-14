@@ -25,8 +25,10 @@ public class InstitutionManageController {
     // ========== 仪表盘统计 ==========
 
     @GetMapping("/dashboard/stats")
-    public Result<Map<String, Object>> getDashboardStats(@RequestHeader("X-User-Id") String userId) {
-        return Result.success(institutionService.getDashboardStats(userId));
+    public Result<Map<String, Object>> getDashboardStats(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestParam(required = false, defaultValue = "month") String period) {
+        return Result.success(institutionService.getDashboardStats(userId, period));
     }
 
     @GetMapping("/dashboard/recent-orders")

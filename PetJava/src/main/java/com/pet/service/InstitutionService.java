@@ -431,33 +431,80 @@ public class InstitutionService {
 
     // ========== 仪表盘统计方法 ==========
 
-    public Map<String, Object> getDashboardStats(String staffUserId) {
+    public Map<String, Object> getDashboardStats(String staffUserId, String period) {
         String institutionId = getInstitutionIdByStaff(staffUserId);
         Institution inst = institutionMapper.selectById(institutionId);
         
         Map<String, Object> stats = new HashMap<>();
         
+        // 确定时间范围
+        LocalDate today = LocalDate.now();
+        LocalDate startDate;
+        LocalDate endDate = today;
+        
+        switch (period) {
+            case "today": 
+                startDate = today;
+                endDate = today;
+                break;
+            case "week": 
+                startDate = today.minusDays(6); 
+                endDate = today;
+                break;
+            case "year": 
+                startDate = today.withDayOfYear(1);
+                endDate = today;
+                break;
+            case "month": 
+            default: 
+                startDate = today.withDayOfMonth(1);
+                endDate = today;
+                break;
+        }
+        
+        System.out.println("=== getDashboardStats ===");
+        System.out.println("period: " + period);
+        System.out.println("startDate: " + startDate);
+        System.out.println("endDate: " + endDate);
+        
         // 查询订单统计
         List<Booking> allBookings = bookingMapper.selectList(
                 new LambdaQueryWrapper<Booking>().eq(Booking::getInstitutionId, institutionId));
         
-        int totalOrders = allBookings.size();
-        int completedOrders = (int) allBookings.stream().filter(b -> "completed".equals(b.getStatus())).count();
-        int cancelledOrders = (int) allBookings.stream().filter(b -> "cancelled".equals(b.getStatus())).count();
-        int inProgressOrders = (int) allBookings.stream().filter(b -> "in_progress".equals(b.getStatus())).count();
-        int pendingOrders = (int) allBookings.stream().filter(b -> "pending".equals(b.getStatus())).count();
+        System.out.println("allBookings.size(): " + allBookings.size());
         
-        // 本月收入
-        LocalDate firstDayOfMonth = LocalDate.now().withDayOfMonth(1);
-        BigDecimal monthlyRevenue = allBookings.stream()
-                .filter(b -> "paid".equals(b.getPaymentStatus()) && b.getPaidAt() != null 
-                        && b.getPaidAt().toLocalDate().isAfter(firstDayOfMonth.minusDays(1)))
+        // 过滤指定时间范围内的订单 - 使用 startDate（寄养开始日期）更合理
+        final LocalDate finalStartDate = startDate;
+        final LocalDate finalEndDate = endDate;
+        List<Booking> periodBookings = allBookings.stream()
+                .filter(b -> {
+                    LocalDate bookingDate = b.getStartDate() != null ? b.getStartDate() : 
+                            (b.getCreatedAt() != null ? b.getCreatedAt().toLocalDate() : null);
+                    if (bookingDate == null) return false;
+                    
+                    boolean inRange = (bookingDate.isEqual(finalStartDate) || bookingDate.isAfter(finalStartDate)) 
+                            && (bookingDate.isEqual(finalEndDate) || bookingDate.isBefore(finalEndDate));
+                    
+                    return inRange;
+                })
+                .collect(java.util.stream.Collectors.toList());
+        
+        System.out.println("periodBookings.size(): " + periodBookings.size());
+        
+        int totalOrders = periodBookings.size();
+        int completedOrders = (int) periodBookings.stream().filter(b -> "completed".equals(b.getStatus())).count();
+        int cancelledOrders = (int) periodBookings.stream().filter(b -> "cancelled".equals(b.getStatus())).count();
+        int inProgressOrders = (int) periodBookings.stream().filter(b -> "in_progress".equals(b.getStatus())).count();
+        int pendingOrders = (int) periodBookings.stream().filter(b -> "pending".equals(b.getStatus())).count();
+        
+        // 指定时间范围内的收入
+        BigDecimal monthlyRevenue = periodBookings.stream()
+                .filter(b -> "paid".equals(b.getPaymentStatus()))
                 .map(Booking::getTotalPrice)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         
         // 今日入住/离店
-        LocalDate today = LocalDate.now();
         int todayCheckIn = (int) allBookings.stream()
                 .filter(b -> b.getStartDate() != null && b.getStartDate().equals(today) 
                         && ("confirmed".equals(b.getStatus()) || "in_progress".equals(b.getStatus())))

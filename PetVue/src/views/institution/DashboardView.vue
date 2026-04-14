@@ -85,12 +85,23 @@ const roomStatus = ref({
   maintenance: 0
 })
 
+// 获取时间段标签
+const getPeriodLabel = (period: string) => {
+  const labels: Record<string, string> = {
+    today: '今日',
+    week: '本周',
+    month: '本月',
+    year: '本年'
+  }
+  return labels[period] || '本月'
+}
+
 // 加载仪表盘数据
 const loadDashboardData = async () => {
   loading.value = true
   try {
     // 加载统计数据
-    const statsRes = await institutionManageApi.getDashboardStats()
+    const statsRes = await institutionManageApi.getDashboardStats(selectedPeriod.value)
     if (statsRes.code === 200 && statsRes.data) {
       const data = statsRes.data
       stats.value = {
@@ -278,18 +289,54 @@ const exportReport = async (format: 'csv' | 'pdf') => {
   ElMessage.info(`正在导出${format.toUpperCase()}报表...`)
   
   try {
-    const reportData = {
+    // 构建符合 ReportData/ReportSection 格式的数据
+    const periodLabel = getPeriodLabel(selectedPeriod.value)
+    const csvSections = [
+      {
+        name: '核心指标',
+        columns: [
+          { key: 'metric', label: '指标' },
+          { key: 'value', label: '数值' }
+        ],
+        data: [
+          { metric: '总订单数', value: stats.value.totalOrders },
+          { metric: '总收入', value: `¥${stats.value.monthlyRevenue}` },
+          { metric: '入住率', value: `${stats.value.occupancyRate}%` },
+          { metric: '平均评分', value: stats.value.averageRating },
+          { metric: '已完成订单', value: stats.value.completedOrders },
+          { metric: '已取消订单', value: stats.value.cancelledOrders }
+        ]
+      },
+      {
+        name: '最近订单',
+        columns: [
+          { key: 'id', label: '订单ID' },
+          { key: 'petName', label: '宠物名' },
+          { key: 'service', label: '服务' },
+          { key: 'status', label: '状态' },
+          { key: 'price', label: '金额' }
+        ],
+        data: recentOrders.value.map((order: any) => ({
+          id: order.id || '-',
+          petName: order.petName || '-',
+          service: order.service || '-',
+          status: order.status || '-',
+          price: order.price ? `¥${order.price}` : '-'
+        }))
+      }
+    ]
+
+    const pdfReportData = {
       title: '机构运营报表',
-      period: selectedPeriod.value,
-      generatedAt: new Date().toISOString(),
-      stats: stats.value,
-      orders: recentOrders.value
+      generatedAt: new Date().toLocaleString('zh-CN'),
+      dateRange: periodLabel,
+      sections: csvSections
     }
-    
+
     if (format === 'csv') {
-      await exportToCSV(reportData, `机构报表_${new Date().toLocaleDateString()}`)
+      exportToCSV(csvSections, `机构报表_${new Date().toLocaleDateString()}`)
     } else {
-      await exportToPDF(reportData, `机构报表_${new Date().toLocaleDateString()}`)
+      exportToPDF(pdfReportData, `机构报表_${new Date().toLocaleDateString()}`)
     }
     ElMessage.success('报表导出成功')
   } catch (error) {
@@ -571,7 +618,7 @@ onUnmounted(() => {
       <div class="stat-card" @click="router.push('/institution/orders')">
         <div class="stat-icon orders"><Calendar :size="24" /></div>
         <div class="stat-content">
-          <span class="stat-label">本月订单</span>
+          <span class="stat-label">{{ getPeriodLabel(selectedPeriod) }}订单</span>
           <span class="stat-value">{{ stats.totalOrders }}</span>
           <span class="stat-trend" :class="getTrendClass(stats.ordersTrend)">
             <ArrowUp v-if="stats.ordersTrend >= 0" :size="14" /><ArrowDown v-else :size="14" />
@@ -582,7 +629,7 @@ onUnmounted(() => {
       <div class="stat-card" @click="router.push('/institution/reports')">
         <div class="stat-icon revenue"><DollarSign :size="24" /></div>
         <div class="stat-content">
-          <span class="stat-label">本月收入</span>
+          <span class="stat-label">{{ getPeriodLabel(selectedPeriod) }}收入</span>
           <span class="stat-value">{{ formatCurrency(stats.monthlyRevenue) }}</span>
           <span class="stat-trend" :class="getTrendClass(stats.revenueTrend)">
             <ArrowUp v-if="stats.revenueTrend >= 0" :size="14" /><ArrowDown v-else :size="14" />
