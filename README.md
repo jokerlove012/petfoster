@@ -149,10 +149,23 @@ PetPro/
 │   ├── src/main/resources/
 │   │   ├── application.yml     # 应用配置
 │   │   └── sql/               # SQL 脚本
+│   ├── uploads/                # 文件上传目录
 │   └── pom.xml
 │
-├── nginx.conf                   # Nginx 配置文件
-├── test_data.sql               # 测试数据
+├── docs/                        # 文档目录
+│   ├── AGENTS.md               # 代理文档
+│   ├── SECURITY_REDIS_SETUP.md # 安全和 Redis 配置
+│   ├── nginx.conf              # Nginx 配置文件
+│   ├── 启动指南.txt             # 启动指南
+│   ├── 数据库设计说明.md        # 数据库设计说明
+│   ├── 测试总结.md             # 测试总结
+│   └── 项目审查与测试清单.md    # 项目审查与测试清单
+│
+├── scripts/                     # 脚本目录
+│   ├── fixAdminService.js      # 管理员服务修复脚本
+│   ├── fixAdminService2.js     # 管理员服务修复脚本2
+│   └── fixBookingService.js    # 预约服务修复脚本
+│
 └── README.md
 ```
 
@@ -244,12 +257,13 @@ npm run dev
 ```bash
 # 构建前端
 cd PetVue
-npx vite build
+npm install
+npm run build
 
 # 部署到 Nginx
 cp -r dist/* /path/to/nginx/html/pet/
 
-# 配置 Nginx（参考 nginx.conf）
+# 配置 Nginx（参考 docs/nginx.conf）
 ```
 
 ## 👥 用户角色与测试账号
@@ -282,6 +296,8 @@ cp -r dist/* /path/to/nginx/html/pet/
 
 ### Nginx 配置要点
 
+详细配置请参考 `docs/nginx.conf`，主要配置项：
+
 ```nginx
 server {
     listen 8088;
@@ -301,6 +317,16 @@ server {
     }
 }
 ```
+
+### 补充文档
+
+项目提供了详细的文档，请参考 `docs/` 目录：
+
+- `启动指南.txt` - 详细启动指南
+- `数据库设计说明.md` - 数据库设计详细说明
+- `测试总结.md` - 测试总结报告
+- `项目审查与测试清单.md` - 项目审查清单
+- `SECURITY_REDIS_SETUP.md` - 安全和 Redis 配置指南
 
 ### 文件上传配置
 
