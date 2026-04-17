@@ -96,7 +96,7 @@ onMounted(() => {
       <div class="detail-header">
         <div class="header-images">
           <img 
-            :src="institution.images[0] || 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?w=800'" 
+            :src="institution.logo || institution.images[0] || 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?w=800'" 
             :alt="institution.name"
             class="main-image"
           />

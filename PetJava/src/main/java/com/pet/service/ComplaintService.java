@@ -15,6 +15,7 @@ import com.pet.mapper.InstitutionMapper;
 import com.pet.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -25,6 +26,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ComplaintService {
     private final ComplaintMapper complaintMapper;
     private final UserMapper userMapper;
@@ -32,41 +34,82 @@ public class ComplaintService {
     private final BookingMapper bookingMapper;
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
+    private final InstitutionService institutionService;
 
     /**
      * 用户提交投诉/工单
      */
     @SneakyThrows
     public Map<String, Object> submitComplaint(String userId, Map<String, Object> data) {
+        log.info("提交投诉 - 用户ID: {}, 数据: {}", userId, data);
+        
         Complaint complaint = new Complaint();
         
         // 生成投诉编号
         String dateStr = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String random = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
-        complaint.setComplaintNumber("TK" + dateStr + random);
+        complaint.setComplaintNumber("CP" + dateStr + random);
         
         complaint.setUserId(userId);
         complaint.setCategory((String) data.get("category"));
         complaint.setDescription((String) data.get("description"));
-        complaint.setExpectation((String) data.get("subject")); // 用subject作为期望/标题
+        
+        // 期望处理 - 支持 expectation 或 subject
+        if (data.get("expectation") != null) {
+            complaint.setExpectation((String) data.get("expectation"));
+        } else if (data.get("subject") != null) {
+            complaint.setExpectation((String) data.get("subject"));
+        }
+        
         complaint.setStatus("pending");
         
-        // 如果有关联订单
-        if (data.get("bookingId") != null) {
-            complaint.setBookingId((String) data.get("bookingId"));
-            // 获取订单关联的机构
-            Booking booking = bookingMapper.selectById((String) data.get("bookingId"));
+        // 如果有关联订单 - 支持 bookingOrderNumber 或 bookingId
+        String bookingIdValue = null;
+        if (data.get("bookingOrderNumber") != null) {
+            bookingIdValue = (String) data.get("bookingOrderNumber");
+        } else if (data.get("bookingId") != null) {
+            bookingIdValue = (String) data.get("bookingId");
+        }
+        
+        if (bookingIdValue != null) {
+            // 尝试通过订单号找到订单
+            Booking booking = bookingMapper.selectOne(
+                new LambdaQueryWrapper<Booking>().eq(Booking::getOrderNumber, bookingIdValue)
+            );
+            if (booking == null) {
+                // 如果没找到，尝试直接用ID查询
+                booking = bookingMapper.selectById(bookingIdValue);
+            }
+            
             if (booking != null) {
+                complaint.setBookingId(booking.getId());
                 complaint.setInstitutionId(booking.getInstitutionId());
+            } else {
+                complaint.setBookingId(bookingIdValue);
             }
         }
         
-        // 如果有附件
-        if (data.get("attachments") != null) {
-            complaint.setEvidence(objectMapper.writeValueAsString(data.get("attachments")));
+        // 如果有机构ID
+        if (data.get("institutionId") != null && complaint.getInstitutionId() == null) {
+            complaint.setInstitutionId((String) data.get("institutionId"));
+        }
+        
+        // 如果有附件 - 支持 evidence 或 attachments
+        List<String> attachments = null;
+        if (data.get("evidence") != null) {
+            attachments = (List<String>) data.get("evidence");
+        } else if (data.get("attachments") != null) {
+            attachments = (List<String>) data.get("attachments");
+        }
+        
+        if (attachments != null) {
+            complaint.setEvidence(objectMapper.writeValueAsString(attachments));
         }
         
         complaintMapper.insert(complaint);
+        
+        log.info("投诉保存成功 - 投诉ID: {}, 编号: {}, 机构ID: {}, 状态: {}", 
+            complaint.getId(), complaint.getComplaintNumber(), complaint.getInstitutionId(), complaint.getStatus());
         
         // 发送通知给管理员 - 链接到投诉管理页面
         notificationService.sendToAdmins(
@@ -177,6 +220,98 @@ public class ComplaintService {
         );
         
         return toComplaintVO(complaint);
+    }
+
+    /**
+     * 获取机构的投诉列表
+     */
+    public PageResult<Map<String, Object>> getInstitutionComplaints(String staffUserId, String status, int page, int pageSize) {
+        String institutionId = getInstitutionIdByStaff(staffUserId);
+        
+        log.info("查询机构投诉 - 机构ID: {}, 状态: {}, 页码: {}", institutionId, status, page);
+        
+        // 先查询所有投诉，用于调试
+        List<Complaint> allComplaints = complaintMapper.selectList(null);
+        log.info("数据库中总投诉数: {}", allComplaints.size());
+        for (Complaint c : allComplaints) {
+            log.info("投诉 - ID: {}, 编号: {}, 机构ID: {}, 状态: {}", c.getId(), c.getComplaintNumber(), c.getInstitutionId(), c.getStatus());
+        }
+        
+        LambdaQueryWrapper<Complaint> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Complaint::getInstitutionId, institutionId);
+        if (StringUtils.hasText(status) && !"all".equals(status)) {
+            wrapper.eq(Complaint::getStatus, status);
+        }
+        wrapper.orderByDesc(Complaint::getCreatedAt);
+        
+        Page<Complaint> pageResult = complaintMapper.selectPage(new Page<>(page, pageSize), wrapper);
+        log.info("查询到 {} 条符合条件的投诉", pageResult.getRecords().size());
+        
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (Complaint complaint : pageResult.getRecords()) {
+            list.add(toComplaintVO(complaint));
+        }
+        return PageResult.of(list, page, pageSize, pageResult.getTotal());
+    }
+
+    /**
+     * 获取机构的投诉统计
+     */
+    public Map<String, Object> getInstitutionComplaintStats(String staffUserId) {
+        String institutionId = getInstitutionIdByStaff(staffUserId);
+        
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("total", complaintMapper.selectCount(
+            new LambdaQueryWrapper<Complaint>().eq(Complaint::getInstitutionId, institutionId)));
+        stats.put("pending", complaintMapper.selectCount(
+            new LambdaQueryWrapper<Complaint>().eq(Complaint::getInstitutionId, institutionId)
+                .eq(Complaint::getStatus, "pending")));
+        stats.put("awaiting_response", complaintMapper.selectCount(
+            new LambdaQueryWrapper<Complaint>().eq(Complaint::getInstitutionId, institutionId)
+                .eq(Complaint::getStatus, "awaiting_response")));
+        stats.put("under_review", complaintMapper.selectCount(
+            new LambdaQueryWrapper<Complaint>().eq(Complaint::getInstitutionId, institutionId)
+                .eq(Complaint::getStatus, "under_review")));
+        stats.put("resolved", complaintMapper.selectCount(
+            new LambdaQueryWrapper<Complaint>().eq(Complaint::getInstitutionId, institutionId)
+                .eq(Complaint::getStatus, "resolved")));
+        return stats;
+    }
+
+    /**
+     * 机构回复投诉
+     */
+    public Map<String, Object> institutionReply(String staffUserId, String complaintId, String response) {
+        String institutionId = getInstitutionIdByStaff(staffUserId);
+        Complaint complaint = complaintMapper.selectById(complaintId);
+        
+        if (complaint == null) {
+            throw new RuntimeException("投诉不存在");
+        }
+        if (!institutionId.equals(complaint.getInstitutionId())) {
+            throw new RuntimeException("无权操作此投诉");
+        }
+        
+        complaint.setInstitutionResponse(response);
+        complaint.setStatus("awaiting_response");
+        complaintMapper.updateById(complaint);
+        
+        // 发送通知给管理员
+        notificationService.sendToAdmins(
+            "COMPLAINT_RESPONDED",
+            "机构已回复投诉",
+            "机构已回复投诉 " + complaint.getComplaintNumber(),
+            "/admin/complaints"
+        );
+        
+        return toComplaintVO(complaint);
+    }
+
+    /**
+     * 获取机构ID（从员工ID）
+     */
+    private String getInstitutionIdByStaff(String staffUserId) {
+        return institutionService.getInstitutionIdByStaff(staffUserId);
     }
 
     @SneakyThrows

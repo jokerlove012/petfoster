@@ -3,6 +3,7 @@ package com.pet.controller;
 import com.pet.common.PageResult;
 import com.pet.common.Result;
 import com.pet.service.BookingService;
+import com.pet.service.ComplaintService;
 import com.pet.service.InstitutionService;
 import com.pet.service.ReviewService;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class InstitutionManageController {
     private final BookingService bookingService;
     private final InstitutionService institutionService;
     private final ReviewService reviewService;
+    private final ComplaintService complaintService;
 
     // ========== 仪表盘统计 ==========
 
@@ -197,5 +199,29 @@ public class InstitutionManageController {
             @RequestHeader("X-User-Id") String userId,
             @RequestBody Map<String, Object> data) {
         return Result.success(institutionService.applyInstitution(userId, data));
+    }
+
+    // ========== 投诉管理 ==========
+
+    @GetMapping("/complaints")
+    public Result<PageResult<Map<String, Object>>> getComplaints(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestParam(defaultValue = "all") String status,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        return Result.success(complaintService.getInstitutionComplaints(userId, status, page, pageSize));
+    }
+
+    @GetMapping("/complaints/stats")
+    public Result<Map<String, Object>> getComplaintStats(@RequestHeader("X-User-Id") String userId) {
+        return Result.success(complaintService.getInstitutionComplaintStats(userId));
+    }
+
+    @PostMapping("/complaints/{id}/reply")
+    public Result<Map<String, Object>> replyComplaint(
+            @RequestHeader("X-User-Id") String userId,
+            @PathVariable String id,
+            @RequestBody Map<String, String> body) {
+        return Result.success(complaintService.institutionReply(userId, id, body.get("response")));
     }
 }

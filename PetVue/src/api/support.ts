@@ -3,12 +3,11 @@ import type { ApiResponse, PaginatedData } from '@/types/common'
 
 export interface ComplaintSubmitData {
   category: string
-  subject: string
+  bookingOrderNumber?: string
+  institutionId?: string
   description: string
-  bookingId?: string
-  attachments?: string[]
-  contactPhone?: string
-  contactEmail?: string
+  expectation?: string
+  evidence?: string[]
 }
 
 export const supportApi = {

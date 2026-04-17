@@ -38,6 +38,7 @@ public class AdminService {
     private final WalletMapper walletMapper;
     private final WalletTransactionMapper transactionMapper;
     private final ObjectMapper objectMapper;
+    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
     public Map<String, Object> getDashboardStats(String period, String startDateStr, String endDateStr) {
         log.info("开始获取仪表盘统计数据，周期: {}, 开始日期: {}, 结束日期: {}", period, startDateStr, endDateStr);
@@ -520,7 +521,7 @@ public class AdminService {
         user.setEmail((String) data.get("email"));
         user.setRole((String) data.getOrDefault("role", "pet_owner"));
         user.setStatus((String) data.getOrDefault("status", "active"));
-        user.setPassword("123456");
+        user.setPassword(passwordEncoder.encode("123456"));
         userMapper.insert(user);
         return toUserVO(user);
     }

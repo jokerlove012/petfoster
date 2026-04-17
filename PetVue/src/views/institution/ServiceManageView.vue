@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { AppButton, AppCard } from '@/components/common'
 import ServicePackageForm from '@/components/institution/ServicePackageForm.vue'
 import type { ServicePackage } from '@/types/institution'
+import { institutionManageApi } from '@/api/institution'
 import api from '@/api/index'
 
 const packages = ref<ServicePackage[]>([])
@@ -15,7 +16,7 @@ const loading = ref(false)
 const loadPackages = async () => {
   loading.value = true
   try {
-    const res = await api.get('/institution/packages')
+    const res = await institutionManageApi.getPackages()
     if (res.code === 200 && res.data) {
       packages.value = res.data || []
     }
@@ -45,23 +46,23 @@ const handleSave = async (data: Partial<ServicePackage>) => {
   try {
     if (editingPackage.value) {
       // 更新
-      await api.put(`/institution/packages/${editingPackage.value.id}`, data)
+      const res = await institutionManageApi.updatePackage(editingPackage.value.id, data)
       const index = packages.value.findIndex(p => p.id === editingPackage.value!.id)
-      if (index !== -1) {
-        packages.value[index] = { ...packages.value[index], ...data }
+      if (index !== -1 && res.data) {
+        packages.value[index] = res.data
       }
       ElMessage.success('套餐更新成功')
     } else {
       // 新增
-      const res = await api.post('/institution/packages', data)
+      const res = await institutionManageApi.createPackage(data)
       if (res.data) {
         packages.value.push(res.data)
       }
       ElMessage.success('套餐创建成功')
     }
     closeForm()
-  } catch (error) {
-    ElMessage.error('操作失败')
+  } catch (error: any) {
+    ElMessage.error(error.message || '操作失败')
   }
 }
 
@@ -82,7 +83,7 @@ const deletePackage = async (pkg: ServicePackage) => {
       '删除确认',
       { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
     )
-    await api.delete(`/institution/packages/${pkg.id}`)
+    await institutionManageApi.deletePackage(pkg.id)
     packages.value = packages.value.filter(p => p.id !== pkg.id)
     ElMessage.success('套餐已删除')
   } catch {

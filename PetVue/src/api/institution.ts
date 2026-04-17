@@ -190,5 +190,24 @@ export const institutionManageApi = {
   // 删除订单
   deleteBooking(id: string): Promise<ApiResponse<void>> {
     return api.delete(`/institution/bookings/${id}`)
+  },
+
+  // 获取投诉列表
+  getComplaints(status?: string, page = 1, pageSize = 20): Promise<ApiResponse<PaginatedData<any>>> {
+    const params = new URLSearchParams()
+    if (status) params.append('status', status)
+    params.append('page', page.toString())
+    params.append('pageSize', pageSize.toString())
+    return api.get(`/institution/complaints?${params.toString()}`)
+  },
+
+  // 获取投诉统计
+  getComplaintStats(): Promise<ApiResponse<any>> {
+    return api.get('/institution/complaints/stats')
+  },
+
+  // 回复投诉
+  replyComplaint(id: string, response: string): Promise<ApiResponse<any>> {
+    return api.post(`/institution/complaints/${id}/reply`, { response })
   }
 }

@@ -12,6 +12,9 @@ interface PendingInstitution {
   status: 'pending' | 'active' | 'rejected'
   licenses?: string[]
   createdAt: string
+  owner?: string
+  license?: string
+  documents?: string[]
 }
 
 const institutions = ref<PendingInstitution[]>([])
@@ -58,6 +61,16 @@ const viewDetail = (inst: PendingInstitution) => {
   showDetail.value = true
 }
 
+const getDocuments = (inst: PendingInstitution) => {
+  if (inst.licenses && inst.licenses.length > 0) {
+    return inst.licenses
+  }
+  if (inst.documents && inst.documents.length > 0) {
+    return inst.documents
+  }
+  return []
+}
+
 const approveInstitution = async (inst: PendingInstitution) => {
   try {
     await ElMessageBox.confirm(
@@ -86,9 +99,78 @@ const rejectInstitution = async (inst: PendingInstitution) => {
   } catch {}
 }
 
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return ''
-  return new Date(dateStr).toLocaleDateString('zh-CN')
+const parseDate = (dateStr: any): Date | null => {
+  if (!dateStr) return null
+  try {
+    let date: Date
+    if (typeof dateStr === 'string') {
+      if (dateStr.includes(' ')) {
+        const [datePart, timePart] = dateStr.split(' ')
+        const [year, month, day] = datePart.split('-')
+        const [hour, minute, second] = timePart.split(':')
+        date = new Date(
+          parseInt(year),
+          parseInt(month) - 1,
+          parseInt(day),
+          parseInt(hour) || 0,
+          parseInt(minute) || 0,
+          parseInt(second) || 0
+        )
+      } else if (dateStr.includes('-')) {
+        const [year, month, day] = dateStr.split('-')
+        date = new Date(
+          parseInt(year),
+          parseInt(month) - 1,
+          parseInt(day)
+        )
+      } else {
+        date = new Date(dateStr)
+      }
+    } else {
+      date = new Date(dateStr)
+    }
+    
+    if (isNaN(date.getTime())) {
+      return null
+    }
+    return date
+  } catch {
+    return null
+  }
+}
+
+const formatDate = (dateStr: any) => {
+  const date = parseDate(dateStr)
+  if (!date) return '-'
+  return date.toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
+}
+
+const formatDateTime = (dateStr: any) => {
+  const date = parseDate(dateStr)
+  if (!date) return '-'
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+}
+
+const isImageUrl = (url: string) => {
+  if (!url) return false
+  return /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url) || url.startsWith('http')
+}
+
+const previewImage = (url: string) => {
+  if (isImageUrl(url)) {
+    window.open(url, '_blank')
+  }
 }
 </script>
 
@@ -143,7 +225,9 @@ const formatDate = (dateStr: string) => {
         <div class="card-footer">
           <div class="documents">
             <span class="doc-label">已提交材料：</span>
-            <span v-for="doc in (inst.licenses || [])" :key="doc" class="doc-tag">{{ doc }}</span>
+            <span v-for="(doc, index) in getDocuments(inst)" :key="index" class="doc-tag">
+              {{ index === 0 ? '资质证书' : index === 1 ? '经营许可证' : '材料' + (index + 1) }}
+            </span>
           </div>
           <div class="card-actions">
             <AppButton type="outline" size="sm" @click="viewDetail(inst)">查看详情</AppButton>
@@ -181,14 +265,22 @@ const formatDate = (dateStr: string) => {
             <span class="label">许可证号</span>
             <span class="value">{{ selectedInstitution.license }}</span>
           </div>
+          <div class="detail-row">
+            <span class="label">提交时间</span>
+            <span class="value">{{ selectedInstitution.createdAt ? formatDateTime(selectedInstitution.createdAt) : '-' }}</span>
+          </div>
         </div>
 
         <div class="detail-section">
           <h4>提交材料</h4>
-          <div class="documents-grid">
-            <div v-for="doc in selectedInstitution.documents" :key="doc" class="doc-item">
-              <span class="doc-icon">📄</span>
-              <span>{{ doc }}</span>
+          <div v-if="getDocuments(selectedInstitution).length === 0" class="empty-documents">
+            <span>暂无提交的材料</span>
+          </div>
+          <div v-else class="documents-grid">
+            <div v-for="(doc, index) in getDocuments(selectedInstitution)" :key="index" class="doc-item" @click="previewImage(doc)">
+              <img v-if="isImageUrl(doc)" :src="doc" class="doc-image" alt="证书图片" />
+              <span v-else class="doc-icon">📄</span>
+              <span class="doc-label">{{ index === 0 ? '资质证书' : index === 1 ? '经营许可证' : '材料' + (index + 1) }}</span>
             </div>
           </div>
         </div>
@@ -411,22 +503,48 @@ const formatDate = (dateStr: string) => {
     }
   }
 
+  .empty-documents {
+    text-align: center;
+    padding: 40px;
+    color: var(--color-text-muted);
+  }
+
   .documents-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
 
     .doc-item {
       display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 8px;
-      padding: 12px;
+      gap: 12px;
+      padding: 20px;
       background: var(--color-neutral-100);
       border-radius: var(--radius-md);
       font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: var(--color-primary-light);
+      }
+
+      .doc-image {
+        width: 100%;
+        max-height: 200px;
+        object-fit: contain;
+        border-radius: var(--radius-sm);
+        background: white;
+      }
 
       .doc-icon {
-        font-size: 20px;
+        font-size: 48px;
+      }
+
+      .doc-label {
+        font-weight: 500;
+        color: var(--color-text-primary);
       }
     }
   }

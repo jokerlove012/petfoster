@@ -23,7 +23,7 @@ const petTypes = computed(() =>
 )
 
 const coverImage = computed(() => 
-  props.institution.images[0] || 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?w=400'
+  props.institution.logo || props.institution.images[0] || 'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?w=400'
 )
 
 const toggleFavorite = (e: Event) => {

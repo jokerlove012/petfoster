@@ -8,7 +8,11 @@ import { geocode } from '@/utils/mapService'
 
 const logoInputRef = ref<HTMLInputElement | null>(null)
 const photosInputRef = ref<HTMLInputElement | null>(null)
+const certificateInputRef = ref<HTMLInputElement | null>(null)
+const licenseInputRef = ref<HTMLInputElement | null>(null)
 const institutionPhotos = ref<string[]>([])
+const certificateFile = ref<string>('')
+const licenseFile = ref<string>('')
 
 const loading = ref(false)
 const activeTab = ref<'basic' | 'service' | 'notification' | 'payment'>('basic')
@@ -101,6 +105,9 @@ const loadProfile = async () => {
         basicInfo.value.address = inst.address || ''
         basicInfo.value.phone = inst.phone || ''
         basicInfo.value.email = inst.email || ''
+        if (inst.images && Array.isArray(inst.images)) {
+          institutionPhotos.value = inst.images
+        }
       }
     }
   } catch (error) {
@@ -119,6 +126,9 @@ const loadSettings = async () => {
     if (res.code === 200 && res.data) {
       const data = res.data
       if (data.basicInfo) basicInfo.value = { ...basicInfo.value, ...data.basicInfo }
+      if (data.images && Array.isArray(data.images)) {
+        institutionPhotos.value = data.images
+      }
       if (data.serviceSettings) serviceSettings.value = { ...serviceSettings.value, ...data.serviceSettings }
       if (data.notificationSettings) notificationSettings.value = { ...notificationSettings.value, ...data.notificationSettings }
       if (data.paymentSettings) paymentSettings.value = { ...paymentSettings.value, ...data.paymentSettings }
@@ -163,28 +173,40 @@ const saveSettings = async () => {
   try {
     if (!hasInstitution.value || institutionStatus.value === 'rejected') {
       // 申请创建机构
+      const licenses = []
+      if (certificateFile.value) licenses.push(certificateFile.value)
+      if (licenseFile.value) licenses.push(licenseFile.value)
+      
       await institutionManageApi.applyInstitution({
         name: basicInfo.value.name,
         description: basicInfo.value.description,
         logo: basicInfo.value.logo,
+        images: institutionPhotos.value,
         address: basicInfo.value.address,
         phone: basicInfo.value.phone,
         email: basicInfo.value.email,
         businessHours: basicInfo.value.businessHours,
-        petTypes: serviceSettings.value.acceptedPets
+        petTypes: serviceSettings.value.acceptedPets,
+        licenses: licenses.length > 0 ? licenses : undefined
       })
       ElMessage.success('机构申请已提交，请等待管理员审核')
       hasInstitution.value = true
       institutionStatus.value = 'pending'
+      // 重新加载资料以更新页面
+      await loadProfile()
     } else {
       // 更新设置
       await institutionManageApi.updateSettings({
         basicInfo: basicInfo.value,
+        images: institutionPhotos.value,
         serviceSettings: serviceSettings.value,
         notificationSettings: notificationSettings.value,
         paymentSettings: paymentSettings.value
       })
       ElMessage.success('设置已保存')
+      // 重新加载资料和设置以更新页面
+      await loadProfile()
+      await loadSettings()
     }
   } catch (error: any) {
     ElMessage.error(error.message || '操作失败')
@@ -212,6 +234,58 @@ const handleLogoChange = async (e: Event) => {
     if (res.code === 200 && res.data) {
       basicInfo.value.logo = res.data.url
       ElMessage.success('Logo上传成功')
+    }
+  } catch (error) {
+    ElMessage.error('上传失败')
+  }
+  input.value = ''
+}
+
+const uploadCertificate = () => {
+  certificateInputRef.value?.click()
+}
+
+const handleCertificateChange = async (e: Event) => {
+  const input = e.target as HTMLInputElement
+  if (!input.files?.length) return
+  
+  const file = input.files[0]
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请选择图片文件')
+    return
+  }
+  
+  try {
+    const res = await uploadApi.upload(file)
+    if (res.code === 200 && res.data) {
+      certificateFile.value = res.data.url
+      ElMessage.success('证书上传成功')
+    }
+  } catch (error) {
+    ElMessage.error('上传失败')
+  }
+  input.value = ''
+}
+
+const uploadLicense = () => {
+  licenseInputRef.value?.click()
+}
+
+const handleLicenseChange = async (e: Event) => {
+  const input = e.target as HTMLInputElement
+  if (!input.files?.length) return
+  
+  const file = input.files[0]
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请选择图片文件')
+    return
+  }
+  
+  try {
+    const res = await uploadApi.upload(file)
+    if (res.code === 200 && res.data) {
+      licenseFile.value = res.data.url
+      ElMessage.success('经营许可证上传成功')
     }
   } catch (error) {
     ElMessage.error('上传失败')
@@ -351,6 +425,30 @@ onMounted(async () => {
                 <el-time-select v-model="basicInfo.businessHours.weekend.start" :max-time="basicInfo.businessHours.weekend.end" placeholder="开始时间" start="06:00" step="00:30" end="23:30" />
                 <span>至</span>
                 <el-time-select v-model="basicInfo.businessHours.weekend.end" :min-time="basicInfo.businessHours.weekend.start" placeholder="结束时间" start="06:00" step="00:30" end="23:30" />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>资质证书</label>
+            <input ref="certificateInputRef" type="file" accept="image/*" style="display:none" @change="handleCertificateChange" />
+            <div class="document-upload" @click="uploadCertificate">
+              <img v-if="certificateFile" :src="certificateFile" class="doc-preview" />
+              <div v-else class="doc-placeholder">
+                <Upload :size="24" />
+                <span>上传资质证书</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>经营许可证</label>
+            <input ref="licenseInputRef" type="file" accept="image/*" style="display:none" @change="handleLicenseChange" />
+            <div class="document-upload" @click="uploadLicense">
+              <img v-if="licenseFile" :src="licenseFile" class="doc-preview" />
+              <div v-else class="doc-placeholder">
+                <Upload :size="24" />
+                <span>上传经营许可证</span>
               </div>
             </div>
           </div>
@@ -612,6 +710,15 @@ onMounted(async () => {
   cursor: pointer; color: #9A958F; transition: all 0.2s; min-height: 100px;
   &:hover { border-color: #722ed1; color: #722ed1; }
   span { font-size: 12px; margin-top: 8px; }
+}
+
+.document-upload {
+  width: 100%; height: 160px; border: 2px dashed #E5E5E5; border-radius: 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  cursor: pointer; color: #9A958F; transition: all 0.2s; overflow: hidden;
+  &:hover { border-color: #722ed1; color: #722ed1; }
+  .doc-preview { width: 100%; height: 100%; object-fit: cover; }
+  .doc-placeholder { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 }
 
 .form-hint { font-size: 12px; color: #9A958F; margin-top: 8px; }

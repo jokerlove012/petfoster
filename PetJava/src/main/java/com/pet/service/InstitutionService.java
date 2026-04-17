@@ -275,7 +275,7 @@ public class InstitutionService {
 
     // ========== 机构管理端方法 ==========
 
-    private String getInstitutionIdByStaff(String staffUserId) {
+    public String getInstitutionIdByStaff(String staffUserId) {
         User staff = userMapper.selectById(staffUserId);
         if (staff == null || staff.getInstitutionId() == null) {
             throw new RuntimeException("用户不是机构员工");
@@ -363,15 +363,56 @@ public class InstitutionService {
         basicInfo.put("description", inst.getDescription());
         basicInfo.put("address", inst.getAddress());
         basicInfo.put("phone", inst.getPhone());
+        basicInfo.put("mobile", inst.getPhone());
         basicInfo.put("email", inst.getEmail());
         basicInfo.put("businessHours", parseJsonObject(inst.getBusinessHours()));
+        if (inst.getLatitude() != null) {
+            Map<String, Object> location = new HashMap<>();
+            location.put("lat", inst.getLatitude());
+            location.put("lng", inst.getLongitude());
+            basicInfo.put("location", location);
+        }
         result.put("basicInfo", basicInfo);
         
         // 服务设置
         Map<String, Object> serviceSettings = new HashMap<>();
         serviceSettings.put("acceptedPets", parseJsonArray(inst.getPetTypes()));
-        serviceSettings.put("capacity", parseJsonObject(inst.getCapacity()));
+        serviceSettings.put("maxPetWeight", 50);
+        serviceSettings.put("maxCapacity", 30);
+        serviceSettings.put("minBookingDays", 1);
+        serviceSettings.put("maxBookingDays", 365);
+        serviceSettings.put("advanceBookingDays", 365);
+        serviceSettings.put("cancellationPolicy", "48hours");
+        serviceSettings.put("checkInTime", "14:00");
+        serviceSettings.put("checkOutTime", "12:00");
+        serviceSettings.put("emergencyContact", "");
+        serviceSettings.put("veterinaryPartner", "");
         result.put("serviceSettings", serviceSettings);
+        
+        // 机构照片
+        result.put("images", parseJsonArray(inst.getImages()));
+        
+        // 通知设置
+        Map<String, Object> notificationSettings = new HashMap<>();
+        notificationSettings.put("newOrder", true);
+        notificationSettings.put("orderConfirm", true);
+        notificationSettings.put("orderCancel", true);
+        notificationSettings.put("newReview", true);
+        notificationSettings.put("complaint", true);
+        notificationSettings.put("systemNotice", true);
+        notificationSettings.put("emailNotification", true);
+        notificationSettings.put("smsNotification", false);
+        notificationSettings.put("pushNotification", true);
+        result.put("notificationSettings", notificationSettings);
+        
+        // 支付设置
+        Map<String, Object> paymentSettings = new HashMap<>();
+        paymentSettings.put("bankName", "");
+        paymentSettings.put("accountName", "");
+        paymentSettings.put("accountNumber", "");
+        paymentSettings.put("autoWithdraw", false);
+        paymentSettings.put("withdrawThreshold", 1000);
+        result.put("paymentSettings", paymentSettings);
         
         return result;
     }
@@ -388,15 +429,29 @@ public class InstitutionService {
         if (basicInfo != null) {
             if (basicInfo.containsKey("name")) inst.setName((String) basicInfo.get("name"));
             if (basicInfo.containsKey("description")) inst.setDescription((String) basicInfo.get("description"));
+            if (basicInfo.containsKey("logo")) inst.setLogo((String) basicInfo.get("logo"));
             if (basicInfo.containsKey("address")) inst.setAddress((String) basicInfo.get("address"));
             if (basicInfo.containsKey("phone")) inst.setPhone((String) basicInfo.get("phone"));
+            if (basicInfo.containsKey("mobile")) {
+                String mobile = (String) basicInfo.get("mobile");
+                if (mobile != null && !mobile.isEmpty()) {
+                    inst.setPhone(mobile);
+                }
+            }
             if (basicInfo.containsKey("email")) inst.setEmail((String) basicInfo.get("email"));
-            if (basicInfo.get("latitude") != null) {
-                inst.setLatitude(new BigDecimal(basicInfo.get("latitude").toString()));
+            
+            if (basicInfo.containsKey("location")) {
+                Map<String, Object> location = (Map<String, Object>) basicInfo.get("location");
+                if (location != null) {
+                    if (location.get("lat") != null) {
+                        inst.setLatitude(new BigDecimal(location.get("lat").toString()));
+                    }
+                    if (location.get("lng") != null) {
+                        inst.setLongitude(new BigDecimal(location.get("lng").toString()));
+                    }
+                }
             }
-            if (basicInfo.get("longitude") != null) {
-                inst.setLongitude(new BigDecimal(basicInfo.get("longitude").toString()));
-            }
+            
             if (basicInfo.containsKey("businessHours")) {
                 inst.setBusinessHours(objectMapper.writeValueAsString(basicInfo.get("businessHours")));
             }
@@ -415,13 +470,16 @@ public class InstitutionService {
             }
         }
         
+        // 处理机构照片
+        List<String> images = (List<String>) data.get("images");
+        if (images != null) {
+            inst.setImages(objectMapper.writeValueAsString(images));
+        }
+        
         Map<String, Object> serviceSettings = (Map<String, Object>) data.get("serviceSettings");
         if (serviceSettings != null) {
             if (serviceSettings.containsKey("acceptedPets")) {
                 inst.setPetTypes(objectMapper.writeValueAsString(serviceSettings.get("acceptedPets")));
-            }
-            if (serviceSettings.containsKey("capacity")) {
-                inst.setCapacity(objectMapper.writeValueAsString(serviceSettings.get("capacity")));
             }
         }
         
@@ -494,8 +552,11 @@ public class InstitutionService {
         int totalOrders = periodBookings.size();
         int completedOrders = (int) periodBookings.stream().filter(b -> "completed".equals(b.getStatus())).count();
         int cancelledOrders = (int) periodBookings.stream().filter(b -> "cancelled".equals(b.getStatus())).count();
-        int inProgressOrders = (int) periodBookings.stream().filter(b -> "in_progress".equals(b.getStatus())).count();
+        int inProgressOrdersForPeriod = (int) periodBookings.stream().filter(b -> "in_progress".equals(b.getStatus())).count();
         int pendingOrders = (int) periodBookings.stream().filter(b -> "pending".equals(b.getStatus())).count();
+        
+        // 所有进行中的订单（用于入住率，不按时间段过滤）
+        int allInProgressOrders = (int) allBookings.stream().filter(b -> "in_progress".equals(b.getStatus())).count();
         
         // 指定时间范围内的收入
         BigDecimal monthlyRevenue = periodBookings.stream()
@@ -520,7 +581,7 @@ public class InstitutionService {
         stats.put("completedOrders", completedOrders);
         stats.put("cancelledOrders", cancelledOrders);
         stats.put("pendingOrders", pendingOrders);
-        stats.put("inProgressOrders", inProgressOrders);
+        stats.put("inProgressOrders", inProgressOrdersForPeriod);
         stats.put("todayCheckIn", todayCheckIn);
         stats.put("todayCheckOut", todayCheckOut);
         stats.put("ordersTrend", 5);
@@ -528,12 +589,7 @@ public class InstitutionService {
         stats.put("occupancyTrend", 3);
         stats.put("ratingTrend", 0);
         
-        // 入住率
-        int occupancyRate = totalOrders > 0 ? (inProgressOrders * 100 / Math.max(1, totalOrders)) : 0;
-        stats.put("occupancyRate", Math.min(occupancyRate, 100));
-        
-        // 房间状态
-        Map<String, Object> roomStatus = new HashMap<>();
+        // 获取总房间数
         int totalRooms = 30;
         if (inst != null) {
             Map<String, Object> capacity = parseJsonObject(inst.getCapacity());
@@ -542,9 +598,16 @@ public class InstitutionService {
                     .sum();
             if (total > 0) totalRooms = total;
         }
+        
+        // 入住率：所有进行中的订单数 / 总房间数
+        int occupancyRate = totalRooms > 0 ? (allInProgressOrders * 100 / totalRooms) : 0;
+        stats.put("occupancyRate", Math.min(occupancyRate, 100));
+        
+        // 房间状态
+        Map<String, Object> roomStatus = new HashMap<>();
         roomStatus.put("total", totalRooms);
-        roomStatus.put("occupied", inProgressOrders);
-        roomStatus.put("available", Math.max(0, totalRooms - inProgressOrders));
+        roomStatus.put("occupied", allInProgressOrders);
+        roomStatus.put("available", Math.max(0, totalRooms - allInProgressOrders));
         roomStatus.put("maintenance", 0);
         stats.put("roomStatus", roomStatus);
         
@@ -700,6 +763,7 @@ public class InstitutionService {
     // 获取报表数据
     public Map<String, Object> getReportData(String staffUserId, String period) {
         String institutionId = getInstitutionIdByStaff(staffUserId);
+        Institution inst = institutionMapper.selectById(institutionId);
         
         // 确定时间范围
         LocalDate endDate = LocalDate.now();
@@ -710,6 +774,10 @@ public class InstitutionService {
             case "year": startDate = endDate.minusYears(1); break;
             default: startDate = endDate.minusMonths(1); break;
         }
+        
+        // 查询所有订单（用于计算所有进行中的订单）
+        List<Booking> allBookings = bookingMapper.selectList(
+                new LambdaQueryWrapper<Booking>().eq(Booking::getInstitutionId, institutionId));
         
         // 查询时间范围内的订单
         List<Booking> bookings = bookingMapper.selectList(
@@ -730,7 +798,22 @@ public class InstitutionService {
         BigDecimal avgOrderValue = totalOrders > 0 ? 
                 totalRevenue.divide(BigDecimal.valueOf(totalOrders), 2, BigDecimal.ROUND_HALF_UP) : BigDecimal.ZERO;
         int inProgressCount = (int) bookings.stream().filter(b -> "in_progress".equals(b.getStatus())).count();
-        double occupancyRate = totalOrders > 0 ? (inProgressCount * 100.0 / totalOrders) : 0;
+        
+        // 所有进行中的订单（用于入住率，不按时间段过滤）
+        int allInProgressCount = (int) allBookings.stream().filter(b -> "in_progress".equals(b.getStatus())).count();
+        
+        // 获取总房间数
+        int totalRooms = 30;
+        if (inst != null) {
+            Map<String, Object> capacity = parseJsonObject(inst.getCapacity());
+            int total = capacity.values().stream()
+                    .mapToInt(v -> v instanceof Number ? ((Number) v).intValue() : 0)
+                    .sum();
+            if (total > 0) totalRooms = total;
+        }
+        
+        // 入住率：所有进行中的订单数 / 总房间数
+        double occupancyRate = totalRooms > 0 ? (allInProgressCount * 100.0 / totalRooms) : 0;
         
         Map<String, Object> coreMetrics = new HashMap<>();
         coreMetrics.put("totalOrders", totalOrders);
@@ -1032,6 +1115,12 @@ public class InstitutionService {
         inst.setAddress((String) data.get("address"));
         inst.setPhone((String) data.get("phone"));
         inst.setEmail((String) data.get("email"));
+        
+        // 处理机构照片
+        List<String> images = (List<String>) data.get("images");
+        if (images != null) {
+            inst.setImages(objectMapper.writeValueAsString(images));
+        }
         
         if (data.get("latitude") != null) {
             inst.setLatitude(new BigDecimal(data.get("latitude").toString()));

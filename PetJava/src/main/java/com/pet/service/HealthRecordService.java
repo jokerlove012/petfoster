@@ -38,6 +38,14 @@ public class HealthRecordService {
         return result;
     }
 
+    public Map<String, Object> getById(String id) {
+        HealthRecord record = healthRecordMapper.selectById(id);
+        if (record == null) {
+            throw new RuntimeException("健康记录不存在");
+        }
+        return toRecordVO(record);
+    }
+
     @SneakyThrows
     public Map<String, Object> create(String bookingId, String createdBy, Map<String, Object> data) {
         HealthRecord record = new HealthRecord();

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage, ElUpload, ElForm, ElFormItem, ElInput, ElSelect, ElOption } from 'element-plus'
+import { ElMessage, ElUpload, ElForm, ElFormItem, ElInput } from 'element-plus'
 import { AppCard } from '@/components/common'
-import type { UploadFile } from 'element-plus'
+import type { UploadFile, UploadUserFile } from 'element-plus'
+import { supportApi, type ComplaintSubmitData } from '@/api/support'
+import { uploadApi } from '@/api/upload'
 
 const router = useRouter()
 const route = useRoute()
@@ -17,13 +19,14 @@ const institutionName = ref(route.query.institutionName as string || '')
 const formData = ref({
   category: '',
   bookingOrderNumber: bookingId.value,
+  institutionId: institutionId.value,
   institutionName: institutionName.value,
   description: '',
   expectation: ''
 })
 
 // 证据附件
-const evidenceFiles = ref<UploadFile[]>([])
+const evidenceFiles = ref<UploadUserFile[]>([])
 
 // 提交状态
 const isSubmitting = ref(false)
@@ -62,7 +65,7 @@ const canSubmit = computed(() => {
 })
 
 // 处理文件上传
-const handleUploadChange = (file: UploadFile, fileList: UploadFile[]) => {
+const handleUploadChange = (file: UploadFile, fileList: UploadUserFile[]) => {
   // 限制文件大小 (10MB)
   if (file.raw && file.raw.size > 10 * 1024 * 1024) {
     ElMessage.warning('文件大小不能超过 10MB')
@@ -81,19 +84,11 @@ const handleUploadChange = (file: UploadFile, fileList: UploadFile[]) => {
 }
 
 // 移除文件
-const handleRemove = (file: UploadFile) => {
+const handleRemove = (file: UploadUserFile) => {
   const index = evidenceFiles.value.findIndex(f => f.uid === file.uid)
   if (index > -1) {
     evidenceFiles.value.splice(index, 1)
   }
-}
-
-// 生成投诉编号
-const generateComplaintNumber = () => {
-  const date = new Date()
-  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '')
-  const random = Math.random().toString(36).substring(2, 8).toUpperCase()
-  return `CP${dateStr}${random}`
 }
 
 // 提交投诉
@@ -108,16 +103,37 @@ const handleSubmit = async () => {
     
     isSubmitting.value = true
     
-    // TODO: 对接真实API
-    // const res = await complaintApi.submit(formData.value)
-    // complaintNumber.value = res.data.complaintNumber
+    // 先上传所有文件
+    const filesToUpload: File[] = []
+    for (const f of evidenceFiles.value) {
+      if (f.raw) {
+        filesToUpload.push(f.raw)
+      }
+    }
     
-    complaintNumber.value = generateComplaintNumber()
-    isSubmitted.value = true
+    const uploadRes = await uploadApi.uploadMultiple(filesToUpload)
+    const evidenceUrls = uploadRes.data?.map((item: any) => item.url) || []
     
-    ElMessage.success('投诉提交成功')
-  } catch {
-    // 验证失败
+    // 提交投诉
+    const submitData: ComplaintSubmitData = {
+      category: formData.value.category,
+      bookingOrderNumber: formData.value.bookingOrderNumber,
+      institutionId: formData.value.institutionId,
+      description: formData.value.description,
+      expectation: formData.value.expectation,
+      evidence: evidenceUrls
+    }
+    
+    const res = await supportApi.submitComplaint(submitData)
+    
+    if (res.data) {
+      complaintNumber.value = res.data.complaintNumber
+      isSubmitted.value = true
+      ElMessage.success('投诉提交成功')
+    }
+  } catch (error: any) {
+    console.error('提交投诉失败:', error)
+    ElMessage.error(error.message || '提交投诉失败')
   } finally {
     isSubmitting.value = false
   }

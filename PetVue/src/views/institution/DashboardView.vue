@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Calendar, DollarSign, Users, Star, ArrowUp, ArrowDown, Bell, Settings, Download, RefreshCw, TrendingUp, Package, Clock, CheckCircle, AlertCircle, Phone, MessageSquare, FileText, PlusCircle } from 'lucide-vue-next'
+import { Calendar, DollarSign, Users, Star, ArrowUp, ArrowDown, Bell, Settings, Download, RefreshCw, TrendingUp, Package, Clock, CheckCircle, AlertCircle, Phone, MessageSquare, FileText, PlusCircle, AlertTriangle } from 'lucide-vue-next'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import LineChart from '@/components/charts/LineChart.vue'
 import PieChart from '@/components/charts/PieChart.vue'
@@ -74,7 +74,8 @@ const notifications = ref<any[]>([])
 const quickActions = ref([
   { id: '1', title: '服务管理', icon: Package, color: '#52c41a', route: '/institution/services' },
   { id: '2', title: '客户列表', icon: Users, color: '#faad14', route: '/institution/customers' },
-  { id: '3', title: '数据报表', icon: FileText, color: '#722ed1', route: '/institution/reports' }
+  { id: '3', title: '数据报表', icon: FileText, color: '#722ed1', route: '/institution/reports' },
+  { id: '4', title: '投诉处理', icon: AlertTriangle, color: '#ff4d4f', route: '/institution/complaints' }
 ])
 
 // 房间状态概览
@@ -202,8 +203,16 @@ const loadPendingTasksCounts = async () => {
       pendingTasks.value[2].count = unrepliedReviews
     }
     
-    // 待处理投诉暂时设为0（如果有投诉API可以调用）
-    pendingTasks.value[3].count = 0
+    // 获取待处理投诉数量
+    try {
+      const complaintsStatsRes = await institutionManageApi.getComplaintStats()
+      if (complaintsStatsRes.code === 200 && complaintsStatsRes.data) {
+        pendingTasks.value[3].count = complaintsStatsRes.data.pendingCount || complaintsStatsRes.data.pending || 0
+      }
+    } catch (e) {
+      console.log('获取投诉统计失败:', e)
+      pendingTasks.value[3].count = 0
+    }
   } catch (error) {
     console.error('加载待处理事项失败:', error)
   }

@@ -65,14 +65,16 @@ const getStatusTypeConfig = (type: PetStatusRecord['type']) => {
   return configs[type]
 }
 
-// 获取食欲/心情文字
+// 获取食欲文字
 const getAppetiteText = (appetite: string) => {
-  const map: Record<string, string> = { good: '良好', normal: '一般', poor: '较差' }
+  const map: Record<string, string> = { 
+    good: '良好', 
+    normal: '正常', 
+    poor: '较差',
+    more: '良好',
+    less: '较差'
+  }
   return map[appetite] || appetite
-}
-const getMoodText = (mood: string) => {
-  const map: Record<string, string> = { happy: '开心', normal: '平静', anxious: '焦虑' }
-  return map[mood] || mood
 }
 
 // 获取订单状态配置
@@ -143,14 +145,15 @@ const loadHealthRecords = async () => {
         // 根据记录内容确定类型
         let type: PetStatusRecord['type'] = 'health'
         if (record.feedingStatus) type = 'feeding'
-        else if (record.activityLevel === 'high') type = 'walking'
+        else if (record.activityLevel === 'high' || record.activityLevel === 'inactive') type = 'walking'
         else if (record.photos?.length > 0) type = 'photo'
         
-        // 格式化时间
-        const date = new Date(record.date || record.createdAt)
+        // 格式化时间 - 优先使用 createdAt，完整显示时间
+        const date = new Date(record.createdAt || record.date)
         const timeStr = date.toLocaleString('zh-CN', { 
-          month: 'numeric', 
-          day: 'numeric', 
+          year: 'numeric',
+          month: '2-digit', 
+          day: '2-digit', 
           hour: '2-digit', 
           minute: '2-digit' 
         })
@@ -160,12 +163,14 @@ const loadHealthRecords = async () => {
         if (record.feedingStatus) title = '喂食记录'
         else if (record.activityLevel) title = '活动记录'
         
-        // 构建内容
+        // 构建内容 - 显示所有字段
         const contents: string[] = []
-        if (record.feedingStatus) contents.push(`喂食状态: ${getFeedingText(record.feedingStatus)}`)
-        if (record.activityLevel) contents.push(`活动量: ${getActivityText(record.activityLevel)}`)
+        if (record.feedingStatus) contents.push(`喂食: ${getFeedingText(record.feedingStatus)}`)
+        if (record.activityLevel) contents.push(`活动: ${getActivityText(record.activityLevel)}`)
         if (record.mood) contents.push(`心情: ${getMoodText(record.mood)}`)
-        if (record.healthObservations) contents.push(record.healthObservations)
+        if (record.healthObservations) contents.push(`观察: ${record.healthObservations}`)
+        if (record.abnormalDetails) contents.push(`异常: ${record.abnormalDetails}`)
+        if (record.medications && record.medications.length > 0) contents.push(`用药: ${record.medications.join(', ')}`)
         
         return {
           id: record.id,
@@ -177,8 +182,12 @@ const loadHealthRecords = async () => {
           healthData: {
             temperature: record.temperature,
             weight: record.weight,
-            appetite: record.feedingStatus === 'good' ? 'good' : record.feedingStatus === 'normal' ? 'normal' : 'poor',
-            mood: record.mood === 'happy' ? 'happy' : record.mood === 'anxious' ? 'anxious' : 'normal'
+            appetite: record.feedingStatus === 'normal' ? 'normal' : 
+                      record.feedingStatus === 'reduced' || record.feedingStatus === 'less' ? 'poor' : 
+                      record.feedingStatus === 'refused' || record.feedingStatus === 'none' ? 'poor' : 'good',
+            mood: record.mood === 'happy' ? 'happy' : 
+                  record.mood === 'anxious' ? 'anxious' : 
+                  record.mood === 'stressed' ? 'anxious' : 'normal'
           }
         } as PetStatusRecord
       })
@@ -190,14 +199,44 @@ const loadHealthRecords = async () => {
 
 // 获取喂食状态文字
 const getFeedingText = (status: string) => {
-  const map: Record<string, string> = { good: '良好', normal: '正常', poor: '较差' }
+  const map: Record<string, string> = { 
+    normal: '正常', 
+    reduced: '食量减少', 
+    increased: '食量增加', 
+    refused: '拒食',
+    more: '食量增加',
+    less: '食量减少',
+    none: '未进食',
+    good: '食欲很好',
+    poor: '食欲不佳'
+  }
   return map[status] || status
 }
 
 // 获取活动量文字
 const getActivityText = (level: string) => {
-  const map: Record<string, string> = { high: '活跃', normal: '正常', low: '较低' }
+  const map: Record<string, string> = { 
+    high: '活跃', 
+    normal: '正常', 
+    low: '低迷', 
+    inactive: '不活动',
+    active: '活跃'
+  }
   return map[level] || level
+}
+
+// 获取心情文字
+const getMoodText = (mood: string) => {
+  const map: Record<string, string> = { 
+    happy: '开心', 
+    calm: '平静', 
+    anxious: '焦虑', 
+    stressed: '紧张',
+    normal: '正常',
+    tired: '疲惫',
+    sad: '低落'
+  }
+  return map[mood] || mood
 }
 
 // 模拟数据已移除，使用从API获取的数据
@@ -205,6 +244,19 @@ const getActivityText = (level: string) => {
 const canCancel = computed(() => order.value && ['pending', 'confirmed'].includes(order.value.status))
 const canTrack = computed(() => order.value?.status === 'in_progress')
 const canReview = computed(() => order.value?.status === 'completed')
+const canComplaint = computed(() => order.value?.status === 'completed')
+
+// 跳转到投诉页面
+const goToComplaint = () => {
+  router.push({
+    path: '/support/complaint',
+    query: {
+      bookingId: order.value?.orderNumber,
+      institutionId: order.value?.institutionId,
+      institutionName: institutionInfo.value.name
+    }
+  })
+}
 
 const openCancelModal = () => { showCancelModal.value = true }
 const confirmCancel = async () => {
@@ -327,6 +379,7 @@ onMounted(() => { initialLoad() })
       <!-- 快捷操作 -->
       <div class="quick-actions" v-if="canReview">
         <AppButton type="primary" size="lg" @click="openReviewModal">⭐ 去评价</AppButton>
+        <AppButton type="outline" size="lg" @click="goToComplaint">📋 投诉</AppButton>
       </div>
 
       <!-- 订单信息 -->

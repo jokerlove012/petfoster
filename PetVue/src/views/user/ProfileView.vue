@@ -247,6 +247,8 @@ const handleAvatarUpload = async (file: File) => {
     const res = await uploadApi.upload(file)
     if (res.code === 200 && res.data) {
       userInfo.value.avatar = res.data.url
+      // 头像上传后自动保存到后端
+      await saveBasicInfo()
       ElMessage.success('头像上传成功')
     } else {
       ElMessage.error(res.message || '头像上传失败')

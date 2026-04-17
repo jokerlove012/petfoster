@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Calendar, Camera, Upload, Save, Clock, Activity, Utensils, Heart, AlertCircle } from 'lucide-vue-next'
+import { Calendar, Camera, Upload, Save, Clock, Activity, Utensils, Heart, AlertCircle, X } from 'lucide-vue-next'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/index'
+import HealthRecordCard from '@/components/health/HealthRecordCard.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -117,6 +118,8 @@ const loadHistoryRecords = async () => {
 }
 
 const showRecordForm = ref(false)
+const showRecordDetail = ref(false)
+const selectedRecord = ref<any>(null)
 
 const pendingCount = computed(() => todayPets.value.filter(p => !p.recorded).length)
 const recordedCount = computed(() => todayPets.value.filter(p => p.recorded).length)
@@ -262,9 +265,16 @@ const removePhoto = (index: number) => {
   currentRecord.value.photos.splice(index, 1)
 }
 
-const viewHistory = (record: typeof historyRecords.value[0]) => {
-  // 健康记录详情暂时使用消息提示，后续可扩展为弹窗显示
-  ElMessage.info(`查看健康记录: ${record.petName} - ${record.date}`)
+const viewHistory = async (record: typeof historyRecords.value[0]) => {
+  try {
+    const res = await api.get(`/health-records/${record.id}`) as any
+    if (res.code === 200 && res.data) {
+      selectedRecord.value = res.data
+      showRecordDetail.value = true
+    }
+  } catch (error) {
+    ElMessage.error('加载健康记录详情失败')
+  }
 }
 
 const getStatusColor = (status: string, type: 'feeding' | 'activity' | 'health') => {
@@ -454,6 +464,16 @@ onMounted(() => {
         <button class="btn-save" :disabled="loading" @click="saveRecord">
           <Save :size="16" /> {{ loading ? '保存中...' : '保存记录' }}
         </button>
+      </template>
+    </el-dialog>
+
+    <!-- 健康记录详情弹窗 -->
+    <el-dialog v-model="showRecordDetail" :title="`${selectedRecord?.petName || '宠物'} 健康记录`" width="600px">
+      <div v-if="selectedRecord" class="record-detail">
+        <HealthRecordCard :record="selectedRecord" />
+      </div>
+      <template #footer>
+        <button class="btn-cancel" @click="showRecordDetail = false">关闭</button>
       </template>
     </el-dialog>
   </div>

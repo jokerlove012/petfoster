@@ -118,6 +118,69 @@ const getAvatar = (role: string) => {
   return '👤'
 }
 
+const parseDate = (dateStr: any): Date | null => {
+  if (!dateStr) return null
+  try {
+    let date: Date
+    if (typeof dateStr === 'string') {
+      if (dateStr.includes(' ')) {
+        const [datePart, timePart] = dateStr.split(' ')
+        const [year, month, day] = datePart.split('-')
+        const [hour, minute, second] = timePart.split(':')
+        date = new Date(
+          parseInt(year),
+          parseInt(month) - 1,
+          parseInt(day),
+          parseInt(hour) || 0,
+          parseInt(minute) || 0,
+          parseInt(second) || 0
+        )
+      } else if (dateStr.includes('-')) {
+        const [year, month, day] = dateStr.split('-')
+        date = new Date(
+          parseInt(year),
+          parseInt(month) - 1,
+          parseInt(day)
+        )
+      } else {
+        date = new Date(dateStr)
+      }
+    } else {
+      date = new Date(dateStr)
+    }
+    
+    if (isNaN(date.getTime())) {
+      return null
+    }
+    return date
+  } catch {
+    return null
+  }
+}
+
+const formatDate = (dateStr: any) => {
+  const date = parseDate(dateStr)
+  if (!date) return '-'
+  return date.toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
+}
+
+const formatDateTime = (dateStr: any) => {
+  const date = parseDate(dateStr)
+  if (!date) return '-'
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+}
+
 const viewUser = async (user: User) => {
   try {
     const res = await adminApi.getUserDetail(user.id)
@@ -325,7 +388,7 @@ const saveAdd = async () => {
                   {{ getStatusLabel(user.status) }}
                 </span>
               </td>
-              <td class="date-cell">{{ user.createdAt ? new Date(user.createdAt).toLocaleDateString('zh-CN') : '-' }}</td>
+              <td class="date-cell">{{ formatDate(user.createdAt) }}</td>
               <td class="action-cell">
                 <button class="action-btn view" @click="viewUser(user)" title="查看">
                   <Eye :size="16" />
@@ -399,11 +462,11 @@ const saveAdd = async () => {
           </div>
           <div class="detail-item">
             <span class="label">注册时间</span>
-            <span class="value">{{ currentUser.createdAt ? new Date(currentUser.createdAt).toLocaleString('zh-CN') : '-' }}</span>
+            <span class="value">{{ currentUser.createdAt ? formatDateTime(currentUser.createdAt) : '-' }}</span>
           </div>
           <div class="detail-item">
             <span class="label">更新时间</span>
-            <span class="value">{{ currentUser.updatedAt ? new Date(currentUser.updatedAt).toLocaleString('zh-CN') : '-' }}</span>
+            <span class="value">{{ currentUser.updatedAt ? formatDateTime(currentUser.updatedAt) : '-' }}</span>
           </div>
         </div>
         <div class="modal-footer">

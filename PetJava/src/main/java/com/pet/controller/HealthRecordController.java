@@ -14,6 +14,11 @@ import java.util.Map;
 public class HealthRecordController {
     private final HealthRecordService healthRecordService;
 
+    @GetMapping("/{id}")
+    public Result<Map<String, Object>> getById(@PathVariable String id) {
+        return Result.success(healthRecordService.getById(id));
+    }
+
     @GetMapping("/booking/{bookingId}")
     public Result<List<Map<String, Object>>> getByBookingId(@PathVariable String bookingId) {
         return Result.success(healthRecordService.getByBookingId(bookingId));
